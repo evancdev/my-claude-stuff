@@ -1,0 +1,21 @@
+{
+  "name": "personal",
+  "description": "Personal Claude Code marketplace.",
+  "owner": {
+    "name": "Evan Chen",
+    "email": "evanctech@gmail.com",
+    "url": "https://github.com/evancdev"
+  },
+  "plugins": [
+    {
+      "name": "my-claude-stuff",
+      "description": "Personal Claude Code plugin.",
+      "version": "0.1.0",
+      "source": "./",
+      "author": {
+        "name": "Evan Chen",
+        "email": "evanctech@gmail.com"
+      }
+    }
+  ]
+}

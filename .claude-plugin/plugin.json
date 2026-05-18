@@ -1,0 +1,10 @@
+{
+  "name": "my-claude-stuff",
+  "version": "0.1.0",
+  "description": "Personal Claude Code plugin.",
+  "author": {
+    "name": "Evan Chen",
+    "email": "evanctech@gmail.com"
+  },
+  "license": "MIT"
+}
