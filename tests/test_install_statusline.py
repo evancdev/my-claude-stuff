@@ -537,9 +537,7 @@ class CaseAAlreadyCorrectTests(InstallerTestBase):
         self._seed()
         result = run_installer(self.home)
         self.assert_clean_success(result)
-        expected = (
-            f"statusLine already points to {self.desired_command()} — no change"
-        )
+        expected = f"statusLine already points to {self.desired_command()} — no change"
         self.assertIn(expected, result.stdout)
 
     def test_no_op_emits_nothing_on_stderr(self):
@@ -690,9 +688,7 @@ class CaseCDifferentTests(InstallerTestBase):
         self._assert_warning_and_overwrite(None)
 
     def test_warning_not_on_stdout(self):
-        self.write_settings(
-            {"statusLine": {"type": "command", "command": "/some/old"}}
-        )
+        self.write_settings({"statusLine": {"type": "command", "command": "/some/old"}})
         result = run_installer(self.home)
         self.assertNotIn("warning:", result.stdout)
 
@@ -937,9 +933,7 @@ class AtomicWriteUnitTests(unittest.TestCase):
         self.target = self.tmp / "settings.json"
 
     def _leftover_tmp_files(self) -> list[str]:
-        return sorted(
-            p.name for p in self.tmp.iterdir() if p.name != self.target.name
-        )
+        return sorted(p.name for p in self.tmp.iterdir() if p.name != self.target.name)
 
     def test_cleanup_on_replace_failure_when_target_exists(self):
         """os.replace raises → tmp file unlinked, original byte-identical."""
@@ -1218,9 +1212,7 @@ class InstallerInvokedViaSymlinkTests(InstallerTestBase):
         cmd = self.read_settings()["statusLine"]["command"]
         # Compare resolved paths (macOS /tmp → /private/tmp symlink wrapping).
         self.assertEqual(Path(cmd).resolve(), real_sibling.resolve())
-        self.assertNotEqual(
-            Path(cmd).resolve(), (link_dir / "statusline.py").resolve()
-        )
+        self.assertNotEqual(Path(cmd).resolve(), (link_dir / "statusline.py").resolve())
 
 
 class OnDiskUtf8EncodingTests(InstallerTestBase):
@@ -1263,9 +1255,7 @@ class ConcurrentInvocationTests(InstallerTestBase):
         result = run_installer(self.home)
         self.assert_clean_success(result)
         # Seed a non-matching state so each parallel run takes the write branch.
-        self.write_settings(
-            {"statusLine": {"type": "command", "command": "/old/path"}}
-        )
+        self.write_settings({"statusLine": {"type": "command", "command": "/old/path"}})
 
         env = {
             "HOME": str(self.home),
