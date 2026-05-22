@@ -1040,26 +1040,17 @@ class ReverseScanChunkBoundaryTests(StatuslineTestBase):
 
 
 # ---------------------------------------------------------------------------
-# settings.json sanity — the statusline isn't useful if its wiring is wrong
+# Statusline script wiring sanity — invoked directly by Claude Code via the
+# installer-managed ~/.claude/settings.json (see scripts/install-statusline.py
+# and tests/test_install_statusline.py for the wiring contract).
 # ---------------------------------------------------------------------------
 
 
-class SettingsJsonTests(unittest.TestCase):
-    def test_settings_json_is_valid_and_points_at_existing_script(self):
-        settings_path = REPO_ROOT / "settings.json"
-        with open(settings_path) as f:
-            data = json.load(f)
-        self.assertIn("statusLine", data)
-        sl = data["statusLine"]
-        self.assertEqual(sl.get("type"), "command")
-        cmd = sl.get("command", "")
-        self.assertIn("scripts/statusline.py", cmd)
-        # Plugin-root substitution so it works on any host install.
-        self.assertIn("${CLAUDE_PLUGIN_ROOT}", cmd)
-
+class StatuslineScriptWiringTests(unittest.TestCase):
     def test_statusline_script_is_executable(self):
-        # settings.json invokes the script directly (no `python3` prefix),
-        # so the shebang + executable bit must both be present.
+        # The installer registers this script as a `command`-type statusLine,
+        # invoked directly (no `python3` prefix), so the shebang + executable
+        # bit must both be present.
         self.assertTrue(os.access(SCRIPT, os.X_OK), f"{SCRIPT} is not executable")
         with open(SCRIPT) as f:
             first_line = f.readline()
