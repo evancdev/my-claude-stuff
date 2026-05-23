@@ -39,7 +39,24 @@ The default GitHub-PR pattern is to checklist *everything*, including CI jobs. T
 
 If CI catches it, it doesn't belong in the test plan. If a human has to *do* something — open the app, hit a URL, watch a metric, run a script with specific args — that belongs.
 
-## Scope
+## Confirm scope before staging
+
+When the user says "open a PR for this," **"this" is ambiguous**. The worktree may contain multiple unrelated changes that piled up during one session — a feature, a tangentially-related skill that emerged while building it, personal design notes, editor configs. Bundling everything by default is wrong:
+
+- it ties unrelated features to a single merge decision
+- it balloons the diff and slows review
+- it obscures intent ("what is this PR actually for?")
+
+**Process:**
+
+1. Run `git status --short` and `git ls-files --others --exclude-standard` to list every uncommitted change.
+2. **Group** the changes into distinct concerns (e.g. "annotate tool", "test-panel skill", "personal design notes", "editor configs").
+3. **Surface the list** to the user and ask which subset belongs in this PR. Don't assume.
+4. Default proposal: the narrowest scope the user explicitly named. One atomic concern is the stretch goal.
+
+Being in the same worktree does not mean being the same feature. A worktree named `ec-annotate` is not a license to ship every adjacent change just because it accumulated nearby.
+
+## Size
 
 Aim for under ~400 lines of **review-relevant** changes. Above that, defect detection drops off sharply and reviews stall — split into a stack of smaller PRs instead.
 
