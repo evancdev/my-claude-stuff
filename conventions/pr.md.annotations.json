@@ -1,0 +1,50 @@
+{
+  "annotations": [
+    {
+      "id": "3a0810",
+      "anchor": {
+        "line_start": 33,
+        "line_end": 33,
+        "char_start": 5,
+        "char_end": 141
+      },
+      "quote": "If no PR exists** \u2192 create one: `gh pr create --base <base> --title \"...\" --body \"$(cat <<'EOF' ... EOF)\"`, then print the returned URL.",
+      "resolved": true,
+      "comments": [
+        {
+          "author": "You",
+          "body": "testing comment if u see this say 1 2 3. thats all u need to do and then reply 4 5 6 to this thread",
+          "timestamp": "2026-05-20T18:34:10.091Z"
+        },
+        {
+          "author": "Claude",
+          "body": "4 5 6",
+          "timestamp": "2026-05-20T18:35:18.786Z"
+        }
+      ]
+    },
+    {
+      "id": "3c2c1d",
+      "anchor": {
+        "line_start": 37,
+        "line_end": 37,
+        "char_start": 26,
+        "char_end": 91
+      },
+      "quote": "Claude didn't create** \u2014 the worktree convention creates a fresh ",
+      "resolved": true,
+      "comments": [
+        {
+          "author": "You",
+          "body": "testing do u see this",
+          "timestamp": "2026-05-20T07:14:55.043Z"
+        },
+        {
+          "author": "Claude",
+          "body": "Yes \u2014 I'm replying inline by writing to the sidecar JSON. The extension's file watcher should re-hydrate this thread and you should see this message appear under your comment without doing anything. The conversation can now live in the thread instead of (or alongside) the chat.",
+          "timestamp": "2026-05-20T07:30:00.000Z"
+        }
+      ]
+    }
+  ]
+}
