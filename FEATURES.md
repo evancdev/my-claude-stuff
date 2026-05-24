@@ -12,6 +12,11 @@ Backlog of improvements for the annotate tool (Python CLI + VS Code extension). 
 
 - **Anchor migration on file edits.** Anchors are coordinate-only (`line_start`/`char_start`/...), so any edit shifts the highlight to whatever text now occupies that range. Caught dogfooding: renaming `## Hard constraints` → `## Constraints` made the "Hard" annotation drift onto characters inside "Constraints". The sidecar already stores the original `quote`; the extension should re-search for it on file load and update coordinates. If not found, surface as **orphaned** (greyed, "anchor lost — was: <quote>") rather than silently mis-highlighting. Add short prefix/suffix context (~32 chars each) to disambiguate when the quote appears multiple times. W3C Web Annotation's `TextQuoteSelector` is the standard model.
 
+- **Differential / incremental list reads.** `list` always dumps the full sidecar — every comment from every thread on every invocation. During active iteration with an LLM dispatcher, the same comments get re-ingested into the context window on every refresh; over a long thread this wastes a meaningful slice of context. Three flags fix it:
+  - `list --since <iso-timestamp>` — only comments newer than X (dispatcher tracks last-seen timestamp, asks for delta next turn). This is the load-bearing one.
+  - `list --id <id>` — single-thread view, for "I just replied on `bb4510`, what changed?"
+  - `list --compact` — strip JSON padding to `[<id>] <author>: <body>` one-liners. Same information, ~3x fewer tokens.
+
 ## Conventions
 
 - **Append, don't overwrite.** Add new ideas with a `-` bullet under the relevant section.
