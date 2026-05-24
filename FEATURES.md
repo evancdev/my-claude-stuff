@@ -10,6 +10,8 @@ Backlog of improvements for the annotate tool (Python CLI + VS Code extension). 
 
 - **Inter-thread linking.** Comments can't reference other threads. Painful when a reply is "see thread N" and there's no way to jump there from the VS Code panel. Proposed syntax: `[[<id>]]` in comment body; the VS Code extension renders these as clickable links that scroll to and highlight the target annotation.
 
+- **Anchor migration on file edits.** Anchors are coordinate-only (`line_start`/`char_start`/...), so any edit shifts the highlight to whatever text now occupies that range. Caught dogfooding: renaming `## Hard constraints` → `## Constraints` made the "Hard" annotation drift onto characters inside "Constraints". The sidecar already stores the original `quote`; the extension should re-search for it on file load and update coordinates. If not found, surface as **orphaned** (greyed, "anchor lost — was: <quote>") rather than silently mis-highlighting. Add short prefix/suffix context (~32 chars each) to disambiguate when the quote appears multiple times. W3C Web Annotation's `TextQuoteSelector` is the standard model.
+
 ## Conventions
 
 - **Append, don't overwrite.** Add new ideas with a `-` bullet under the relevant section.
