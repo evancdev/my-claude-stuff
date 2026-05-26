@@ -14,6 +14,8 @@ import sys
 import time
 from pathlib import Path
 
+from _lib import atomic_write
+
 STATE_PATH = Path.home() / ".claude" / "viz-state.json"
 URL_RE = re.compile(r"figma\.com/(?:board|design|file)/([A-Za-z0-9_-]+)")
 
@@ -58,9 +60,7 @@ def main() -> int:
         "seen_comments": seen,
         "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
-    tmp = STATE_PATH.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(state, indent=2))
-    tmp.replace(STATE_PATH)
+    atomic_write(STATE_PATH, json.dumps(state, indent=2))
     print(f"viz: tracking Figma {key} for comments (TTL 4h)")
     return 0
 

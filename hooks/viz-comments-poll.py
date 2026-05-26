@@ -16,10 +16,15 @@ from __future__ import annotations
 import calendar
 import json
 import os
+import sys
 import time
 import urllib.error
 import urllib.request
 from pathlib import Path
+
+# Hooks live in hooks/; shared helpers live in the sibling scripts/ dir.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+from _lib import atomic_write, read_dotenv  # noqa: E402
 
 STATE_PATH = Path.home() / ".claude" / "viz-state.json"
 SECRETS_PATH = Path.home() / ".claude" / "secrets.env"
@@ -30,19 +35,9 @@ TTL_SECONDS = 4 * 3600
 def _read_token() -> str | None:
     """Dotenv file first (set once, works from any launch context), real env
     var as a fallback for power users."""
-    if SECRETS_PATH.is_file():
-        try:
-            for line in SECRETS_PATH.read_text().splitlines():
-                line = line.strip()
-                if not line or line.startswith("#") or "=" not in line:
-                    continue
-                k, _, v = line.partition("=")
-                if k.strip() == TOKEN_KEY:
-                    v = v.strip()
-                    if v:
-                        return v
-        except OSError:
-            pass
+    v = read_dotenv(SECRETS_PATH).get(TOKEN_KEY)
+    if v:
+        return v
     env = os.environ.get(TOKEN_KEY)
     return env or None
 
@@ -93,15 +88,28 @@ def _main() -> None:
     if not isinstance(raw, list):
         return
 
+    current_ids: set[str] = set()
     unseen = []
     for c in raw:
         if not isinstance(c, dict):
             continue
         cid = c.get("id")
-        if not isinstance(cid, str) or cid in seen or c.get("resolved_at"):
+        if not isinstance(cid, str):
+            continue
+        current_ids.add(cid)
+        if cid in seen or c.get("resolved_at"):
             continue
         unseen.append(c)
     if not unseen:
+        # Even on no-op turns, prune seen_comments to ids the API still returns
+        # so resolved/deleted comments fall off and the list stays bounded.
+        pruned = sorted(seen & current_ids)
+        if pruned != sorted(seen):
+            state["seen_comments"] = pruned
+            try:
+                atomic_write(STATE_PATH, json.dumps(state, indent=2))
+            except OSError:
+                pass
         return
 
     lines = [f"--- {len(unseen)} unread Figma comment(s) on file {key} ---"]
@@ -123,16 +131,13 @@ def _main() -> None:
     # never silently loses feedback. Swapping these would do the opposite.
     print(json.dumps(payload))
 
-    state["seen_comments"] = sorted(seen | {c["id"] for c in unseen})
-    tmp = STATE_PATH.with_suffix(".json.tmp")
+    # Intersect with current_ids so resolved/deleted comments drop out — keeps
+    # seen_comments bounded by the file's actual comment count.
+    state["seen_comments"] = sorted((seen & current_ids) | {c["id"] for c in unseen})
     try:
-        tmp.write_text(json.dumps(state, indent=2))
-        tmp.replace(STATE_PATH)
+        atomic_write(STATE_PATH, json.dumps(state, indent=2))
     except OSError:
-        try:
-            tmp.unlink()
-        except OSError:
-            pass
+        pass
 
 
 if __name__ == "__main__":

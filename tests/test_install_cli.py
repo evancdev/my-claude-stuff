@@ -7,6 +7,7 @@ export block in the user's shell rc file.
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -35,25 +36,8 @@ def _run(*args, env_extra=None):
 class InstallCliTests(unittest.TestCase):
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp(prefix="install_cli_home_")
-        self.addCleanup(self._rm)
+        self.addCleanup(shutil.rmtree, self.tmpdir, ignore_errors=True)
         self.rc = Path(self.tmpdir) / ".zshrc"
-
-    def _rm(self):
-        for root, dirs, files in os.walk(self.tmpdir, topdown=False):
-            for f in files:
-                try:
-                    os.unlink(os.path.join(root, f))
-                except OSError:
-                    pass
-            for d in dirs:
-                try:
-                    os.rmdir(os.path.join(root, d))
-                except OSError:
-                    pass
-        try:
-            os.rmdir(self.tmpdir)
-        except OSError:
-            pass
 
     def _install(self, *args):
         return _run(*args, env_extra={"HOME": self.tmpdir, "SHELL": "/bin/zsh"})

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -49,26 +50,8 @@ def _run(cmd, *, env_extra=None, env_unset=(), stdin=""):
 class VizSetCurrentTests(unittest.TestCase):
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp(prefix="viz_test_home_")
-        self.addCleanup(self._rm_tmpdir)
+        self.addCleanup(shutil.rmtree, self.tmpdir, ignore_errors=True)
         self.state_path = Path(self.tmpdir) / ".claude" / "viz-state.json"
-
-    def _rm_tmpdir(self):
-        # Best-effort recursive cleanup. We don't import shutil to keep it lean.
-        for root, dirs, files in os.walk(self.tmpdir, topdown=False):
-            for f in files:
-                try:
-                    os.unlink(os.path.join(root, f))
-                except OSError:
-                    pass
-            for d in dirs:
-                try:
-                    os.rmdir(os.path.join(root, d))
-                except OSError:
-                    pass
-        try:
-            os.rmdir(self.tmpdir)
-        except OSError:
-            pass
 
     def _run_set(self, *args):
         return _run(
@@ -193,25 +176,8 @@ class VizHookSilentNoopTests(unittest.TestCase):
 
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp(prefix="viz_hook_home_")
-        self.addCleanup(self._rm_tmpdir)
+        self.addCleanup(shutil.rmtree, self.tmpdir, ignore_errors=True)
         self.state_path = Path(self.tmpdir) / ".claude" / "viz-state.json"
-
-    def _rm_tmpdir(self):
-        for root, dirs, files in os.walk(self.tmpdir, topdown=False):
-            for f in files:
-                try:
-                    os.unlink(os.path.join(root, f))
-                except OSError:
-                    pass
-            for d in dirs:
-                try:
-                    os.rmdir(os.path.join(root, d))
-                except OSError:
-                    pass
-        try:
-            os.rmdir(self.tmpdir)
-        except OSError:
-            pass
 
     def _run_hook(self, *, token=None):
         env_unset = () if token is not None else ("FIGMA_PERSONAL_ACCESS_TOKEN",)
@@ -342,25 +308,8 @@ class SetSecretTests(unittest.TestCase):
 
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp(prefix="viz_secret_home_")
-        self.addCleanup(self._rm)
+        self.addCleanup(shutil.rmtree, self.tmpdir, ignore_errors=True)
         self.secrets_path = Path(self.tmpdir) / ".claude" / "secrets.env"
-
-    def _rm(self):
-        for root, dirs, files in os.walk(self.tmpdir, topdown=False):
-            for f in files:
-                try:
-                    os.unlink(os.path.join(root, f))
-                except OSError:
-                    pass
-            for d in dirs:
-                try:
-                    os.rmdir(os.path.join(root, d))
-                except OSError:
-                    pass
-        try:
-            os.rmdir(self.tmpdir)
-        except OSError:
-            pass
 
     def _run(self, *args):
         return _run([str(SET_SECRET), *args], env_extra={"HOME": self.tmpdir})
