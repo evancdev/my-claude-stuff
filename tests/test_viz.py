@@ -456,9 +456,9 @@ class VizWiringTests(unittest.TestCase):
         entries = data["hooks"]["PostToolUse"]
         self.assertTrue(entries)
         matcher = entries[0]["matcher"]
-        self.assertIn("mcp__figma__use_figma", matcher)
-        self.assertIn("mcp__figma__generate_diagram", matcher)
-        self.assertIn("mcp__figma__create_new_file", matcher)
+        # Matcher is a regex; should cover every Figma MCP tool, not just a
+        # hand-maintained subset. (`mcp__figma__.*` is the canonical form.)
+        self.assertIn("mcp__figma__", matcher)
         inner = entries[0]["hooks"]
         self.assertTrue(
             any(h.get("command", "").endswith("viz-track.py") for h in inner)

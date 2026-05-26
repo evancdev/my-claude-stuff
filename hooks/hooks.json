@@ -14,7 +14,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "mcp__figma__use_figma|mcp__figma__generate_diagram|mcp__figma__create_new_file",
+        "matcher": "mcp__figma__.*",
         "hooks": [
           {
             "type": "command",
