@@ -24,7 +24,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SET_CURRENT = REPO_ROOT / "scripts" / "viz-set-current.py"
-SET_TOKEN = REPO_ROOT / "scripts" / "viz-set-token.py"
+SET_SECRET = REPO_ROOT / "scripts" / "set-secret.py"
 HOOK = REPO_ROOT / "hooks" / "viz-comments-poll.py"
 HOOKS_JSON = REPO_ROOT / "hooks" / "hooks.json"
 
@@ -336,11 +336,14 @@ class VizHookOutputSchemaTests(unittest.TestCase):
         self.assertIn("UserPromptSubmit", src)
 
 
-class VizSetTokenTests(unittest.TestCase):
+class SetSecretTests(unittest.TestCase):
+    """Generic secret setter: writes to ~/.claude/secrets.env in dotenv format,
+    mode 0600. One file, many keys."""
+
     def setUp(self):
-        self.tmpdir = tempfile.mkdtemp(prefix="viz_token_home_")
+        self.tmpdir = tempfile.mkdtemp(prefix="viz_secret_home_")
         self.addCleanup(self._rm)
-        self.token_path = Path(self.tmpdir) / ".claude" / "figma-token"
+        self.secrets_path = Path(self.tmpdir) / ".claude" / "secrets.env"
 
     def _rm(self):
         for root, dirs, files in os.walk(self.tmpdir, topdown=False):
@@ -359,43 +362,61 @@ class VizSetTokenTests(unittest.TestCase):
         except OSError:
             pass
 
-    def _run(self, *args, stdin=""):
-        return _run(
-            [str(SET_TOKEN), *args],
-            env_extra={"HOME": self.tmpdir},
-            stdin=stdin,
-        )
+    def _run(self, *args):
+        return _run([str(SET_SECRET), *args], env_extra={"HOME": self.tmpdir})
 
     def test_non_tty_stdin_refuses_with_exit_2(self):
-        # subprocess.run with input="" pipes stdin (not a tty) — the script
-        # must NOT attempt to prompt and must NOT silently succeed.
-        result = self._run()
+        result = self._run("FIGMA_PERSONAL_ACCESS_TOKEN")
         self.assertEqual(result.returncode, 2, msg=result.stderr)
         self.assertIn("not a tty", result.stderr)
-        self.assertFalse(self.token_path.exists())
+        self.assertFalse(self.secrets_path.exists())
 
-    def test_clear_removes_token_file(self):
-        self.token_path.parent.mkdir(parents=True, exist_ok=True)
-        self.token_path.write_text("some-token\n")
-        result = self._run("--clear")
-        self.assertEqual(result.returncode, 0)
-        self.assertFalse(self.token_path.exists())
+    def test_no_key_prints_usage_and_exits_2(self):
+        result = self._run()
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("usage:", result.stderr)
 
-    def test_clear_is_safe_when_no_token(self):
-        result = self._run("--clear")
+    def test_list_when_no_secrets(self):
+        result = self._run("--list")
         self.assertEqual(result.returncode, 0)
-        self.assertFalse(self.token_path.exists())
+        self.assertIn("no secrets stored", result.stdout)
+
+    def test_list_masks_values(self):
+        self.secrets_path.parent.mkdir(parents=True, exist_ok=True)
+        self.secrets_path.write_text("FIGMA_PERSONAL_ACCESS_TOKEN=figp_abc\nSENTRY_AUTH_TOKEN=sntrys_xyz\n")
+        result = self._run("--list")
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("FIGMA_PERSONAL_ACCESS_TOKEN=****", result.stdout)
+        self.assertIn("SENTRY_AUTH_TOKEN=****", result.stdout)
+        # Values must NOT leak.
+        self.assertNotIn("figp_abc", result.stdout)
+        self.assertNotIn("sntrys_xyz", result.stdout)
+
+    def test_clear_removes_key_preserves_others(self):
+        self.secrets_path.parent.mkdir(parents=True, exist_ok=True)
+        self.secrets_path.write_text("FOO=one\nBAR=two\nBAZ=three\n")
+        result = self._run("--clear", "BAR")
+        self.assertEqual(result.returncode, 0)
+        contents = self.secrets_path.read_text()
+        self.assertIn("FOO=one", contents)
+        self.assertIn("BAZ=three", contents)
+        self.assertNotIn("BAR", contents)
+
+    def test_clear_missing_key_is_a_noop(self):
+        result = self._run("--clear", "NEVER_SET")
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("not set", result.stdout)
 
 
 class VizHookTokenSourceTests(unittest.TestCase):
-    """The hook reads the token from ~/.claude/figma-token first, env var as
+    """The hook reads the token from ~/.claude/secrets.env first, env var as
     fallback. Verified by inspecting the hook's source — we don't probe the
     real Figma API."""
 
-    def test_hook_references_token_file_path(self):
+    def test_hook_references_secrets_env_path(self):
         src = HOOK.read_text()
-        self.assertIn("figma-token", src, msg="hook must load token from ~/.claude/figma-token")
-        self.assertIn("FIGMA_PERSONAL_ACCESS_TOKEN", src, msg="hook must fall back to env var")
+        self.assertIn("secrets.env", src, msg="hook must load token from ~/.claude/secrets.env")
+        self.assertIn("FIGMA_PERSONAL_ACCESS_TOKEN", src, msg="hook must look up the FIGMA_PERSONAL_ACCESS_TOKEN key")
 
 
 class VizWiringTests(unittest.TestCase):
@@ -415,9 +436,9 @@ class VizWiringTests(unittest.TestCase):
         first = SET_CURRENT.read_text().splitlines()[0]
         self.assertTrue(first.startswith("#!"), f"missing shebang: {first!r}")
 
-    def test_set_token_script_is_executable_with_shebang(self):
-        self.assertTrue(os.access(SET_TOKEN, os.X_OK), f"{SET_TOKEN} not executable")
-        first = SET_TOKEN.read_text().splitlines()[0]
+    def test_set_secret_script_is_executable_with_shebang(self):
+        self.assertTrue(os.access(SET_SECRET, os.X_OK), f"{SET_SECRET} not executable")
+        first = SET_SECRET.read_text().splitlines()[0]
         self.assertTrue(first.startswith("#!"), f"missing shebang: {first!r}")
 
     def test_hook_script_is_executable_with_shebang(self):
