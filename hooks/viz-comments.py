@@ -11,6 +11,7 @@ Silent / no-op (exit 0, no stdout) when:
 A hook must never fail a user prompt. The top-level try/except catches
 anything that escapes the inner handlers and exits 0.
 """
+
 from __future__ import annotations
 
 import calendar

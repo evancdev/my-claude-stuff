@@ -27,6 +27,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 SET_CURRENT = REPO_ROOT / "scripts" / "viz-set-current.py"
 SET_SECRET = REPO_ROOT / "scripts" / "set-secret.py"
 HOOK = REPO_ROOT / "hooks" / "viz-comments.py"
+TRACK = REPO_ROOT / "hooks" / "viz-track.py"
 HOOKS_JSON = REPO_ROOT / "hooks" / "hooks.json"
 
 
@@ -375,6 +376,66 @@ class VizHookTokenSourceTests(unittest.TestCase):
         )
 
 
+class VizTrackTests(unittest.TestCase):
+    """PostToolUse hook that auto-records the current Figma file when Claude
+    calls a Figma MCP tool. Extracts URL/key from stdin JSON, calls
+    viz-set-current.py."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp(prefix="viz_track_home_")
+        self.addCleanup(shutil.rmtree, self.tmpdir, ignore_errors=True)
+        self.state_path = Path(self.tmpdir) / ".claude" / "viz-state.json"
+
+    def _run_track(self, stdin):
+        return _run([str(TRACK)], env_extra={"HOME": self.tmpdir}, stdin=stdin)
+
+    def test_empty_stdin_silent_noop(self):
+        r = self._run_track("")
+        self.assertEqual(r.returncode, 0, msg=r.stderr)
+        self.assertEqual(r.stderr, "")
+        self.assertFalse(self.state_path.exists())
+
+    def test_payload_without_figma_url_silent_noop(self):
+        r = self._run_track(
+            '{"tool_name": "Bash", "tool_response": {"output": "hello"}}'
+        )
+        self.assertEqual(r.returncode, 0)
+        self.assertFalse(self.state_path.exists())
+
+    def test_url_in_response_triggers_set_current(self):
+        payload = json.dumps(
+            {
+                "tool_name": "mcp__figma__generate_diagram",
+                "tool_response": {
+                    "claimFileUrl": "https://www.figma.com/board/ABCKEY123/My-Diagram"
+                },
+            }
+        )
+        r = self._run_track(payload)
+        self.assertEqual(r.returncode, 0, msg=r.stderr)
+        self.assertTrue(self.state_path.exists())
+        state = json.loads(self.state_path.read_text())
+        self.assertEqual(state["current_file_key"], "ABCKEY123")
+
+    def test_filekey_in_input_triggers_set_current(self):
+        payload = json.dumps(
+            {
+                "tool_name": "mcp__figma__use_figma",
+                "tool_input": {"fileKey": "XYZ456", "code": "figma.createSticky();"},
+            }
+        )
+        r = self._run_track(payload)
+        self.assertEqual(r.returncode, 0)
+        state = json.loads(self.state_path.read_text())
+        self.assertEqual(state["current_file_key"], "XYZ456")
+
+    def test_malformed_stdin_silent_noop(self):
+        r = self._run_track("not valid json {{{{")
+        self.assertEqual(r.returncode, 0)
+        self.assertEqual(r.stderr, "")
+        self.assertFalse(self.state_path.exists())
+
+
 class VizWiringTests(unittest.TestCase):
     """Sanity-check the on-disk wiring."""
 
@@ -388,6 +449,25 @@ class VizWiringTests(unittest.TestCase):
         self.assertTrue(
             any(h.get("command", "").endswith("viz-comments.py") for h in inner)
         )
+
+    def test_hooks_json_registers_PostToolUse_for_figma_tools(self):
+        data = json.loads(HOOKS_JSON.read_text())
+        self.assertIn("PostToolUse", data["hooks"])
+        entries = data["hooks"]["PostToolUse"]
+        self.assertTrue(entries)
+        matcher = entries[0]["matcher"]
+        self.assertIn("mcp__figma__use_figma", matcher)
+        self.assertIn("mcp__figma__generate_diagram", matcher)
+        self.assertIn("mcp__figma__create_new_file", matcher)
+        inner = entries[0]["hooks"]
+        self.assertTrue(
+            any(h.get("command", "").endswith("viz-track.py") for h in inner)
+        )
+
+    def test_track_script_is_executable_with_shebang(self):
+        self.assertTrue(os.access(TRACK, os.X_OK), f"{TRACK} not executable")
+        first = TRACK.read_text().splitlines()[0]
+        self.assertTrue(first.startswith("#!"), f"missing shebang: {first!r}")
 
     def test_set_current_script_is_executable_with_shebang(self):
         self.assertTrue(
