@@ -26,6 +26,7 @@ Save a Figma personal access token so the hook can read comments:
 
 ```
 ${CLAUDE_PLUGIN_ROOT}/scripts/set-secret.py FIGMA_PERSONAL_ACCESS_TOKEN
+# (or just `set-secret.py FIGMA_PERSONAL_ACCESS_TOKEN` if you've run install-cli.sh)
 ```
 
 Run from your own terminal (the setter refuses non-tty stdin so the value can't leak into chat history). It prompts via hidden input and stores the value in `~/.claude/secrets.env` (dotenv format, mode 0600) — the same file other plugins/hooks should use for their tokens. Generate the Figma PAT at https://www.figma.com/settings (Personal access tokens → Generate new). Required scope: `file_content:read`. Free Figma seats can read comments on personal files; team-owned files may require a paid seat.
