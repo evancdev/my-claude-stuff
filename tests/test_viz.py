@@ -24,6 +24,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SET_CURRENT = REPO_ROOT / "scripts" / "viz-set-current.py"
+SET_TOKEN = REPO_ROOT / "scripts" / "viz-set-token.py"
 HOOK = REPO_ROOT / "hooks" / "viz-comments-poll.py"
 HOOKS_JSON = REPO_ROOT / "hooks" / "hooks.json"
 
@@ -335,6 +336,68 @@ class VizHookOutputSchemaTests(unittest.TestCase):
         self.assertIn("UserPromptSubmit", src)
 
 
+class VizSetTokenTests(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp(prefix="viz_token_home_")
+        self.addCleanup(self._rm)
+        self.token_path = Path(self.tmpdir) / ".claude" / "figma-token"
+
+    def _rm(self):
+        for root, dirs, files in os.walk(self.tmpdir, topdown=False):
+            for f in files:
+                try:
+                    os.unlink(os.path.join(root, f))
+                except OSError:
+                    pass
+            for d in dirs:
+                try:
+                    os.rmdir(os.path.join(root, d))
+                except OSError:
+                    pass
+        try:
+            os.rmdir(self.tmpdir)
+        except OSError:
+            pass
+
+    def _run(self, *args, stdin=""):
+        return _run(
+            [str(SET_TOKEN), *args],
+            env_extra={"HOME": self.tmpdir},
+            stdin=stdin,
+        )
+
+    def test_non_tty_stdin_refuses_with_exit_2(self):
+        # subprocess.run with input="" pipes stdin (not a tty) — the script
+        # must NOT attempt to prompt and must NOT silently succeed.
+        result = self._run()
+        self.assertEqual(result.returncode, 2, msg=result.stderr)
+        self.assertIn("not a tty", result.stderr)
+        self.assertFalse(self.token_path.exists())
+
+    def test_clear_removes_token_file(self):
+        self.token_path.parent.mkdir(parents=True, exist_ok=True)
+        self.token_path.write_text("some-token\n")
+        result = self._run("--clear")
+        self.assertEqual(result.returncode, 0)
+        self.assertFalse(self.token_path.exists())
+
+    def test_clear_is_safe_when_no_token(self):
+        result = self._run("--clear")
+        self.assertEqual(result.returncode, 0)
+        self.assertFalse(self.token_path.exists())
+
+
+class VizHookTokenSourceTests(unittest.TestCase):
+    """The hook reads the token from ~/.claude/figma-token first, env var as
+    fallback. Verified by inspecting the hook's source — we don't probe the
+    real Figma API."""
+
+    def test_hook_references_token_file_path(self):
+        src = HOOK.read_text()
+        self.assertIn("figma-token", src, msg="hook must load token from ~/.claude/figma-token")
+        self.assertIn("FIGMA_PERSONAL_ACCESS_TOKEN", src, msg="hook must fall back to env var")
+
+
 class VizWiringTests(unittest.TestCase):
     """Sanity-check the on-disk wiring."""
 
@@ -350,6 +413,11 @@ class VizWiringTests(unittest.TestCase):
     def test_set_current_script_is_executable_with_shebang(self):
         self.assertTrue(os.access(SET_CURRENT, os.X_OK), f"{SET_CURRENT} not executable")
         first = SET_CURRENT.read_text().splitlines()[0]
+        self.assertTrue(first.startswith("#!"), f"missing shebang: {first!r}")
+
+    def test_set_token_script_is_executable_with_shebang(self):
+        self.assertTrue(os.access(SET_TOKEN, os.X_OK), f"{SET_TOKEN} not executable")
+        first = SET_TOKEN.read_text().splitlines()[0]
         self.assertTrue(first.startswith("#!"), f"missing shebang: {first!r}")
 
     def test_hook_script_is_executable_with_shebang(self):

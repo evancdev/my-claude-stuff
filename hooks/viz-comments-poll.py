@@ -22,13 +22,28 @@ import urllib.request
 from pathlib import Path
 
 STATE_PATH = Path.home() / ".claude" / "viz-state.json"
+TOKEN_PATH = Path.home() / ".claude" / "figma-token"
 TTL_SECONDS = 4 * 3600
+
+
+def _read_token() -> str | None:
+    """Token file first (set once, works from any launch context), env var as
+    a fallback for power users."""
+    if TOKEN_PATH.is_file():
+        try:
+            t = TOKEN_PATH.read_text().strip()
+            if t:
+                return t
+        except OSError:
+            pass
+    env = os.environ.get("FIGMA_PERSONAL_ACCESS_TOKEN")
+    return env or None
 
 
 def _main() -> None:
     if not STATE_PATH.is_file():
         return
-    token = os.environ.get("FIGMA_PERSONAL_ACCESS_TOKEN")
+    token = _read_token()
     if not token:
         return
 

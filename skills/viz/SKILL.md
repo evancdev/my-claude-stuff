@@ -22,15 +22,15 @@ When `additionalContext` appears containing `--- N unread Figma comment(s) ---`:
 
 ## Prereqs (one-time per machine)
 
-Set a Figma personal access token in your shell environment so the hook can read comments:
+Save a Figma personal access token so the hook can read comments:
 
 ```
-export FIGMA_PERSONAL_ACCESS_TOKEN=<your-pat>
+${CLAUDE_PLUGIN_ROOT}/scripts/viz-set-token.py
 ```
 
-Generate at https://www.figma.com/settings (Personal access tokens → Generate new token). Required scope: `file_content:read`. Free Figma seats can read comments on personal files; team-owned files may require a paid seat.
+Run from your own terminal (the script refuses non-tty stdin so the token can't leak into chat history). It prompts via hidden input and writes `~/.claude/figma-token` with mode 0600. Generate the token at https://www.figma.com/settings (Personal access tokens → Generate new). Required scope: `file_content:read`. Free Figma seats can read comments on personal files; team-owned files may require a paid seat.
 
-If the token isn't set, the hook silently no-ops — the rest of the viz workflow still works, just without auto-injected feedback.
+The hook falls back to the `FIGMA_PERSONAL_ACCESS_TOKEN` env var if the file isn't present. If neither is set, the hook silently no-ops — the rest of the viz workflow still works, just without auto-injected feedback.
 
 ## Anti-patterns
 
