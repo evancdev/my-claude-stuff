@@ -49,7 +49,7 @@ class InstallCliTests(unittest.TestCase):
         body = self.rc.read_text()
         self.assertIn(MARKER_START, body)
         self.assertIn(MARKER_END, body)
-        self.assertIn(f"export PATH=\"{REPO_ROOT}/scripts:$PATH\"", body)
+        self.assertIn(f'export PATH="{REPO_ROOT}/scripts:$PATH"', body)
 
     def test_preserves_existing_rc_content(self):
         self.rc.write_text("# my existing alias\nalias ll='ls -la'\n")
@@ -65,8 +65,9 @@ class InstallCliTests(unittest.TestCase):
         self.assertEqual(first.count(MARKER_START), 1)
         self._install()
         second = self.rc.read_text()
-        self.assertEqual(second.count(MARKER_START), 1,
-                         msg="re-run must replace, not duplicate")
+        self.assertEqual(
+            second.count(MARKER_START), 1, msg="re-run must replace, not duplicate"
+        )
         self.assertEqual(second.count(MARKER_END), 1)
 
     def test_uninstall_removes_block_preserves_rest(self):

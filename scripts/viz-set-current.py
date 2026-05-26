@@ -5,6 +5,7 @@ Usage:
     viz-set-current.py <figma-url-or-file-key>
     viz-set-current.py --clear
 """
+
 from __future__ import annotations
 
 import argparse

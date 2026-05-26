@@ -98,9 +98,7 @@ class VizSetCurrentTests(unittest.TestCase):
         self.assertEqual(self._state()["current_file_key"], "ABC123XYZ")
 
     def test_design_url(self):
-        result = self._run_set(
-            "https://www.figma.com/design/DESIGNKEY1/Some-File"
-        )
+        result = self._run_set("https://www.figma.com/design/DESIGNKEY1/Some-File")
         self.assertEqual(result.returncode, 0)
         self.assertEqual(self._state()["current_file_key"], "DESIGNKEY1")
 
@@ -188,17 +186,20 @@ class VizHookSilentNoopTests(unittest.TestCase):
 
     def _write_state(self, obj):
         os.makedirs(self.state_path.parent, exist_ok=True)
-        self.state_path.write_text(
-            obj if isinstance(obj, str) else json.dumps(obj)
-        )
+        self.state_path.write_text(obj if isinstance(obj, str) else json.dumps(obj))
 
     def _assert_silent(self, result):
         self.assertEqual(
-            result.returncode, 0,
+            result.returncode,
+            0,
             msg=f"hook crashed: stderr={result.stderr!r} stdout={result.stdout!r}",
         )
-        self.assertEqual(result.stderr, "", msg=f"hook leaked stderr: {result.stderr!r}")
-        self.assertEqual(result.stdout, "", msg=f"hook leaked stdout: {result.stdout!r}")
+        self.assertEqual(
+            result.stderr, "", msg=f"hook leaked stderr: {result.stderr!r}"
+        )
+        self.assertEqual(
+            result.stdout, "", msg=f"hook leaked stdout: {result.stdout!r}"
+        )
 
     # ---- no-op branches that already work ----
 
@@ -256,9 +257,7 @@ class VizHookSilentNoopTests(unittest.TestCase):
     def test_state_missing_updated_at_silent_noop(self):
         # No updated_at → can't tell if TTL elapsed → safest is to no-op
         # rather than risk an unbounded fetch window.
-        self._write_state(
-            {"current_file_key": "ABC", "seen_comments": []}
-        )
+        self._write_state({"current_file_key": "ABC", "seen_comments": []})
         self._assert_silent(self._run_hook(token="fake-token"))
 
     def test_state_updated_at_unparseable_silent_noop(self):
@@ -332,7 +331,9 @@ class SetSecretTests(unittest.TestCase):
 
     def test_list_masks_values(self):
         self.secrets_path.parent.mkdir(parents=True, exist_ok=True)
-        self.secrets_path.write_text("FIGMA_PERSONAL_ACCESS_TOKEN=figp_abc\nSENTRY_AUTH_TOKEN=sntrys_xyz\n")
+        self.secrets_path.write_text(
+            "FIGMA_PERSONAL_ACCESS_TOKEN=figp_abc\nSENTRY_AUTH_TOKEN=sntrys_xyz\n"
+        )
         result = self._run("--list")
         self.assertEqual(result.returncode, 0)
         self.assertIn("FIGMA_PERSONAL_ACCESS_TOKEN=****", result.stdout)
@@ -364,8 +365,14 @@ class VizHookTokenSourceTests(unittest.TestCase):
 
     def test_hook_references_secrets_env_path(self):
         src = HOOK.read_text()
-        self.assertIn("secrets.env", src, msg="hook must load token from ~/.claude/secrets.env")
-        self.assertIn("FIGMA_PERSONAL_ACCESS_TOKEN", src, msg="hook must look up the FIGMA_PERSONAL_ACCESS_TOKEN key")
+        self.assertIn(
+            "secrets.env", src, msg="hook must load token from ~/.claude/secrets.env"
+        )
+        self.assertIn(
+            "FIGMA_PERSONAL_ACCESS_TOKEN",
+            src,
+            msg="hook must look up the FIGMA_PERSONAL_ACCESS_TOKEN key",
+        )
 
 
 class VizWiringTests(unittest.TestCase):
@@ -378,10 +385,14 @@ class VizWiringTests(unittest.TestCase):
         entries = data["hooks"]["UserPromptSubmit"]
         self.assertTrue(entries, "expected at least one UserPromptSubmit entry")
         inner = entries[0]["hooks"]
-        self.assertTrue(any(h.get("command", "").endswith("viz-comments-poll.py") for h in inner))
+        self.assertTrue(
+            any(h.get("command", "").endswith("viz-comments-poll.py") for h in inner)
+        )
 
     def test_set_current_script_is_executable_with_shebang(self):
-        self.assertTrue(os.access(SET_CURRENT, os.X_OK), f"{SET_CURRENT} not executable")
+        self.assertTrue(
+            os.access(SET_CURRENT, os.X_OK), f"{SET_CURRENT} not executable"
+        )
         first = SET_CURRENT.read_text().splitlines()[0]
         self.assertTrue(first.startswith("#!"), f"missing shebang: {first!r}")
 
