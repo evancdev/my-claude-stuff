@@ -2,7 +2,7 @@
 
 Internal — leading underscore signals not a public CLI. Imported by
 sibling scripts directly; hooks insert the parent /scripts/ dir into
-sys.path first (see hooks/viz-comments-poll.py for the pattern).
+sys.path first (see hooks/viz-comments.py for the pattern).
 """
 
 from __future__ import annotations

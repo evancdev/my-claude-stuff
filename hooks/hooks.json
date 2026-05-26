@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/viz-comments-poll.py",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/viz-comments.py",
             "timeout": 5
           }
         ]

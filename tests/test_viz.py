@@ -3,7 +3,7 @@
 Covers:
 - scripts/viz-set-current.py — URL parsing, state file I/O, --clear, seen_comments
   preservation vs. reset across key switches.
-- hooks/viz-comments-poll.py — silent no-op contract (no state, no token, expired
+- hooks/viz-comments.py — silent no-op contract (no state, no token, expired
   TTL, malformed state), and JSON output schema for Claude Code's
   UserPromptSubmit hook (must use hookSpecificOutput.additionalContext, not a
   bare additionalContext key).
@@ -26,7 +26,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SET_CURRENT = REPO_ROOT / "scripts" / "viz-set-current.py"
 SET_SECRET = REPO_ROOT / "scripts" / "set-secret.py"
-HOOK = REPO_ROOT / "hooks" / "viz-comments-poll.py"
+HOOK = REPO_ROOT / "hooks" / "viz-comments.py"
 HOOKS_JSON = REPO_ROOT / "hooks" / "hooks.json"
 
 
@@ -291,7 +291,7 @@ class VizHookOutputSchemaTests(unittest.TestCase):
             "hookSpecificOutput",
             src,
             msg=(
-                "viz-comments-poll.py must emit JSON shaped as "
+                "viz-comments.py must emit JSON shaped as "
                 "{'hookSpecificOutput': {'hookEventName': 'UserPromptSubmit', "
                 "'additionalContext': ...}}; a bare 'additionalContext' key is "
                 "ignored by the hook harness so injected comments would never "
@@ -386,7 +386,7 @@ class VizWiringTests(unittest.TestCase):
         self.assertTrue(entries, "expected at least one UserPromptSubmit entry")
         inner = entries[0]["hooks"]
         self.assertTrue(
-            any(h.get("command", "").endswith("viz-comments-poll.py") for h in inner)
+            any(h.get("command", "").endswith("viz-comments.py") for h in inner)
         )
 
     def test_set_current_script_is_executable_with_shebang(self):
