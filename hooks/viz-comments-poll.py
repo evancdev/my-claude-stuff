@@ -90,6 +90,17 @@ def _main() -> None:
         lines.append(f"[{author}] (id={c['id']}): {text}")
     lines.append("--- end ---")
 
+    payload = {
+        "hookSpecificOutput": {
+            "hookEventName": "UserPromptSubmit",
+            "additionalContext": "\n".join(lines),
+        }
+    }
+    # Print first, persist after. If the persist fails or the harness drops
+    # stdout, the next prompt re-injects the same comments — annoying but
+    # never silently loses feedback. Swapping these would do the opposite.
+    print(json.dumps(payload))
+
     state["seen_comments"] = sorted(seen | {c["id"] for c in unseen})
     tmp = STATE_PATH.with_suffix(".json.tmp")
     try:
@@ -100,14 +111,6 @@ def _main() -> None:
             tmp.unlink()
         except OSError:
             pass
-
-    payload = {
-        "hookSpecificOutput": {
-            "hookEventName": "UserPromptSubmit",
-            "additionalContext": "\n".join(lines),
-        }
-    }
-    print(json.dumps(payload))
 
 
 if __name__ == "__main__":
