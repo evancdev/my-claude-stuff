@@ -29,6 +29,7 @@ SET_SECRET = REPO_ROOT / "scripts" / "set-secret.py"
 HOOK = REPO_ROOT / "hooks" / "viz-comments.py"
 TRACK = REPO_ROOT / "hooks" / "viz-track.py"
 HOOKS_JSON = REPO_ROOT / "hooks" / "hooks.json"
+MY_CLAUDE = REPO_ROOT / "scripts" / "my-claude"
 
 
 def _run(cmd, *, env_extra=None, env_unset=(), stdin=""):
@@ -485,6 +486,127 @@ class VizWiringTests(unittest.TestCase):
         self.assertTrue(os.access(HOOK, os.X_OK), f"{HOOK} not executable")
         first = HOOK.read_text().splitlines()[0]
         self.assertTrue(first.startswith("#!"), f"missing shebang: {first!r}")
+
+
+class MyClaudeDispatchTests(unittest.TestCase):
+    """The `my-claude` entrypoint routes `<group> <command> [args]` to the
+    underlying scripts, with a built-in help and exit-2 on bad usage."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp(prefix="my_claude_home_")
+        self.addCleanup(shutil.rmtree, self.tmpdir, ignore_errors=True)
+        self.claude_dir = Path(self.tmpdir) / ".claude"
+
+    def _run(self, *args, stdin=""):
+        return _run(
+            [str(MY_CLAUDE), *args],
+            env_extra={"HOME": self.tmpdir},
+            stdin=stdin,
+        )
+
+    # ---- help / usage ----
+
+    def test_no_args_prints_help_exit_0(self):
+        r = self._run()
+        self.assertEqual(r.returncode, 0, msg=r.stderr)
+        self.assertIn("Usage: my-claude", r.stdout)
+
+    def test_help_subcommand(self):
+        r = self._run("help")
+        self.assertEqual(r.returncode, 0)
+        self.assertIn("secret", r.stdout)
+        self.assertIn("viz", r.stdout)
+        self.assertIn("statusline", r.stdout)
+
+    def test_help_flag_aliases(self):
+        for flag in ("-h", "--help"):
+            r = self._run(flag)
+            self.assertEqual(r.returncode, 0, msg=f"{flag}: {r.stderr}")
+            self.assertIn("Usage: my-claude", r.stdout)
+
+    def test_unknown_group_exits_2_with_help(self):
+        r = self._run("bogus")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("unknown group", r.stderr)
+        self.assertIn("Usage: my-claude", r.stderr)
+
+    def test_group_without_command_exits_2(self):
+        r = self._run("secret")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("needs a command", r.stderr)
+        # Lists the valid verbs for that group.
+        self.assertIn("set", r.stderr)
+
+    def test_unknown_command_exits_2(self):
+        r = self._run("secret", "frobnicate")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("unknown command", r.stderr)
+
+    # ---- routing to underlying scripts ----
+
+    def test_viz_set_routes_and_writes_state(self):
+        r = self._run("viz", "set", "https://www.figma.com/board/ABCKEY/Foo")
+        self.assertEqual(r.returncode, 0, msg=r.stderr)
+        state = json.loads((self.claude_dir / "viz-state.json").read_text())
+        self.assertEqual(state["current_file_key"], "ABCKEY")
+
+    def test_viz_clear_routes(self):
+        self._run("viz", "set", "ABCKEY")
+        r = self._run("viz", "clear")
+        self.assertEqual(r.returncode, 0)
+        self.assertFalse((self.claude_dir / "viz-state.json").exists())
+
+    def test_secret_list_routes(self):
+        r = self._run("secret", "list")
+        self.assertEqual(r.returncode, 0, msg=r.stderr)
+        self.assertIn("no secrets stored", r.stdout)
+
+    def test_secret_clear_routes_with_key_arg(self):
+        secrets = self.claude_dir / "secrets.env"
+        secrets.parent.mkdir(parents=True, exist_ok=True)
+        secrets.write_text("FOO=one\nBAR=two\n")
+        r = self._run("secret", "clear", "BAR")
+        self.assertEqual(r.returncode, 0, msg=r.stderr)
+        contents = secrets.read_text()
+        self.assertIn("FOO=one", contents)
+        self.assertNotIn("BAR", contents)
+
+    def test_secret_set_non_tty_refuses_via_route(self):
+        # The trailing KEY arg must reach set-secret.py; non-tty stdin → exit 2.
+        r = self._run("secret", "set", "FIGMA_PERSONAL_ACCESS_TOKEN")
+        self.assertEqual(r.returncode, 2, msg=r.stderr)
+        self.assertIn("not a tty", r.stderr)
+
+    def test_statusline_install_routes(self):
+        # Routes to install-statusline.py, which writes statusLine into the
+        # isolated-HOME settings.json (idempotent; safe under temp HOME).
+        r = self._run("statusline", "install")
+        self.assertEqual(r.returncode, 0, msg=r.stderr)
+        settings = json.loads((self.claude_dir / "settings.json").read_text())
+        self.assertIn("statusLine", settings)
+        self.assertTrue(
+            settings["statusLine"]["command"].endswith("statusline.py"),
+            msg=settings["statusLine"],
+        )
+
+    # ---- wiring ----
+
+    def test_my_claude_is_executable_with_shebang(self):
+        self.assertTrue(os.access(MY_CLAUDE, os.X_OK), f"{MY_CLAUDE} not executable")
+        first = MY_CLAUDE.read_text().splitlines()[0]
+        self.assertTrue(first.startswith("#!"), f"missing shebang: {first!r}")
+
+    def test_missing_target_script_exits_1(self):
+        # Copy only the entrypoint into an isolated dir (no sibling target
+        # scripts). A valid route then resolves to a non-existent file → exit 1.
+        isolated = Path(self.tmpdir) / "bin"
+        isolated.mkdir(parents=True)
+        copy = isolated / "my-claude"
+        shutil.copy(MY_CLAUDE, copy)
+        copy.chmod(0o755)
+        r = _run([str(copy), "viz", "clear"], env_extra={"HOME": self.tmpdir})
+        self.assertEqual(r.returncode, 1, msg=r.stdout + r.stderr)
+        self.assertIn("missing target script", r.stderr)
 
 
 if __name__ == "__main__":

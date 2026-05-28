@@ -1,0 +1,110 @@
+#!/usr/bin/env python3
+"""Single entrypoint for the my-claude-stuff helper scripts.
+
+Routes `my-claude <group> <command> [args]` to the underlying scripts in this
+directory, so users get one namespaced command instead of a handful of raw
+filenames on their PATH. Installed as a symlink by install-cli.py.
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+from pathlib import Path
+
+SCRIPTS_DIR = Path(__file__).resolve().parent
+
+# (group, command) -> (target script, leading args prepended before user args).
+# The user's trailing args are appended verbatim, so e.g.
+#   my-claude secret clear FOO  ->  set-secret.py --clear FOO
+ROUTES: dict[tuple[str, str], tuple[str, list[str]]] = {
+    ("secret", "set"): ("set-secret.py", []),
+    ("secret", "list"): ("set-secret.py", ["--list"]),
+    ("secret", "clear"): ("set-secret.py", ["--clear"]),
+    ("viz", "set"): ("viz-set-current.py", []),
+    ("viz", "clear"): ("viz-set-current.py", ["--clear"]),
+    ("statusline", "install"): ("install-statusline.py", []),
+}
+
+# Human-facing help, grouped. Kept in sync with ROUTES by hand (small + stable).
+HELP_GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
+    (
+        "secret",
+        "Manage secrets in ~/.claude/secrets.env",
+        [
+            ("set <KEY>", "prompt for a value (hidden) and store it"),
+            ("list", "list stored keys (values masked)"),
+            ("clear <KEY>", "remove a key"),
+        ],
+    ),
+    (
+        "viz",
+        "Track the current Figma file for the comments hook",
+        [
+            ("set <url|key>", "start tracking a Figma URL or file key"),
+            ("clear", "stop tracking"),
+        ],
+    ),
+    (
+        "statusline",
+        "Manage the plugin statusline",
+        [("install", "register the statusline in ~/.claude/settings.json")],
+    ),
+]
+
+
+def print_help(stream=sys.stdout) -> None:
+    print("my-claude — Evan's personal Claude Code plugin CLI\n", file=stream)
+    print("Usage: my-claude <group> <command> [args]\n", file=stream)
+    for group, summary, cmds in HELP_GROUPS:
+        print(f"  {group:<11}{summary}", file=stream)
+        for name, desc in cmds:
+            print(f"    {name:<16}{desc}", file=stream)
+        print("", file=stream)
+    print("  help       show this help", file=stream)
+
+
+def main(argv: list[str]) -> int:
+    if not argv or argv[0] in ("help", "-h", "--help"):
+        print_help()
+        return 0
+
+    group = argv[0]
+    known_groups = {g for g, _ in ROUTES}
+    if group not in known_groups:
+        print(f"my-claude: unknown group {group!r}\n", file=sys.stderr)
+        print_help(sys.stderr)
+        return 2
+
+    if len(argv) < 2:
+        verbs = sorted(c for g, c in ROUTES if g == group)
+        print(
+            f"my-claude: '{group}' needs a command ({', '.join(verbs)})",
+            file=sys.stderr,
+        )
+        return 2
+
+    command = argv[1]
+    route = ROUTES.get((group, command))
+    if route is None:
+        verbs = sorted(c for g, c in ROUTES if g == group)
+        print(
+            f"my-claude: unknown command '{group} {command}' (try: {', '.join(verbs)})",
+            file=sys.stderr,
+        )
+        return 2
+
+    script, lead = route
+    target = SCRIPTS_DIR / script
+    if not target.is_file():
+        print(f"my-claude: missing target script {target}", file=sys.stderr)
+        return 1
+
+    # Replace this process so interactive prompts (e.g. getpass on `secret set`)
+    # keep the real tty, and the child's exit status is reported directly.
+    cmd = [sys.executable, str(target), *lead, *argv[2:]]
+    os.execv(sys.executable, cmd)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))
