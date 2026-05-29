@@ -138,6 +138,23 @@ class InstallCliTests(unittest.TestCase):
         self.assertEqual(r.returncode, 0)
         self.assertIn("alias foo='bar'", self.rc.read_text())
 
+    def test_install_uninstall_install_cycle_ends_clean(self):
+        # A full round-trip converges on exactly one managed block.
+        self._install()
+        self._install("--uninstall")
+        r = self._install()
+        self.assertEqual(r.returncode, 0, msg=r.stderr)
+        body = self.rc.read_text()
+        self.assertEqual(body.count(MARKER_START), 1)
+        self.assertEqual(body.count(MARKER_END), 1)
+
+    def test_empty_shell_uses_profile(self):
+        # An empty $SHELL falls back to ~/.profile, like an unrecognized one.
+        r = _run(env_extra={"HOME": self.tmpdir, "SHELL": ""})
+        self.assertEqual(r.returncode, 0, msg=r.stderr)
+        self.assertIn(MARKER_START, (Path(self.tmpdir) / ".profile").read_text())
+        self.assertFalse(self.rc.exists())
+
     def test_bash_picks_bash_profile_when_present(self):
         bp = Path(self.tmpdir) / ".bash_profile"
         bp.write_text("# existing\n")

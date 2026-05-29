@@ -15,12 +15,17 @@ branches; tests requiring the Figma API to return canned data are not included
 
 from __future__ import annotations
 
+import contextlib
+import importlib.util
+import io
 import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -113,6 +118,99 @@ class VizSetCurrentTests(unittest.TestCase):
         result = self._run_set("figma.com/board/BAREKEY/Foo")
         self.assertEqual(result.returncode, 0)
         self.assertEqual(self._state()["current_file_key"], "BAREKEY")
+
+    def test_proto_slides_deck_urls_derive_key(self):
+        # /proto/, /slides/, /deck/ are comment-bearing figma URL forms; the
+        # key is derived just like /design/ and /board/.
+        for form, key in [("proto", "PROTOKEY"), ("slides", "SLKEY"), ("deck", "DKEY")]:
+            result = self._run_set(f"https://www.figma.com/{form}/{key}/x?node-id=1-2")
+            self.assertEqual(result.returncode, 0, msg=result.stderr)
+            self.assertEqual(self._state()["current_file_key"], key)
+
+    def test_http_scheme_url(self):
+        result = self._run_set("http://www.figma.com/design/HTTPKEY/Name")
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(self._state()["current_file_key"], "HTTPKEY")
+
+    def test_no_scheme_with_www(self):
+        result = self._run_set("www.figma.com/design/NOSCHEMEWWW/x")
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(self._state()["current_file_key"], "NOSCHEMEWWW")
+
+    def test_no_scheme_no_www(self):
+        result = self._run_set("figma.com/design/NOSCHEMEKEY/x")
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(self._state()["current_file_key"], "NOSCHEMEKEY")
+
+    def test_url_without_filename(self):
+        result = self._run_set("https://www.figma.com/design/NOFILEKEY")
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(self._state()["current_file_key"], "NOFILEKEY")
+
+    def test_url_with_trailing_slash(self):
+        result = self._run_set("https://www.figma.com/design/TRAILKEY/")
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(self._state()["current_file_key"], "TRAILKEY")
+
+    def test_design_url_with_node_id_query(self):
+        result = self._run_set("https://www.figma.com/design/NODEKEY/Name?node-id=1-2")
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(self._state()["current_file_key"], "NODEKEY")
+
+    def test_branch_url_uses_file_key_not_branch_key(self):
+        # A branch URL keeps the first (file) key, not the branch segment.
+        result = self._run_set(
+            "https://www.figma.com/design/MAINKEY/branch/BRANCHKEY/Name?node-id=1-2"
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(self._state()["current_file_key"], "MAINKEY")
+
+    def test_uppercase_and_mixed_case_host_path_parsed(self):
+        # Host/path casing doesn't block key extraction.
+        result = self._run_set("https://FIGMA.COM/design/UPPERHOST/Name")
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(self._state()["current_file_key"], "UPPERHOST")
+        result = self._run_set("https://www.Figma.com/DESIGN/MixedKey/Name")
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(self._state()["current_file_key"], "MixedKey")
+
+    def test_very_long_url_key_parsed(self):
+        key = "VERYLONGKEY" + ("x" * 500)
+        result = self._run_set(f"https://www.figma.com/design/{key}/Name")
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(self._state()["current_file_key"], key)
+
+    def test_non_figma_url_stored_verbatim(self):
+        # A non-figma URL has no derivable key, so it's stored as-is (raw-key
+        # fallback).
+        result = self._run_set("https://example.com/foo/bar")
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(
+            self._state()["current_file_key"], "https://example.com/foo/bar"
+        )
+
+    # ---- raw-key value shapes ----
+
+    def test_leading_dash_key_accepted(self):
+        # A leading-dash value is a valid raw key, not an option flag.
+        result = self._run_set("--", "-weirdkey")
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        self.assertEqual(self._state()["current_file_key"], "-weirdkey")
+
+    def test_key_with_spaces_preserved(self):
+        result = self._run_set("key with spaces")
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(self._state()["current_file_key"], "key with spaces")
+
+    def test_unicode_key_preserved(self):
+        result = self._run_set("key\U0001f600emoji")
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(self._state()["current_file_key"], "key\U0001f600emoji")
+
+    def test_empty_string_rejected(self):
+        result = self._run_set("")
+        self.assertEqual(result.returncode, 2)
+        self.assertFalse(self.state_path.exists())
 
     # ---- state mutation: seen_comments preserved vs reset ----
 
@@ -272,6 +370,32 @@ class VizHookSilentNoopTests(unittest.TestCase):
         )
         self._assert_silent(self._run_hook(token="fake-token"))
 
+    def test_empty_state_file_silent_noop(self):
+        # A zero-byte state file → unparseable → silent.
+        self._write_state("")
+        self._assert_silent(self._run_hook(token="fake-token"))
+
+    def test_falsy_current_file_key_silent_noop(self):
+        # A dict whose current_file_key is absent (`{}`) or null both resolve to
+        # no key to track and hit the same falsy-key guard → silent.
+        for state in ("{}", '{"current_file_key": null}'):
+            with self.subTest(state=state):
+                self._write_state(state)
+                self._assert_silent(self._run_hook(token="fake-token"))
+
+    def test_fresh_state_real_token_no_network_silent_noop(self):
+        # Token present and TTL fresh, so the fetch path is reached, but the
+        # file key is fake and there's no real network/auth — the hook must
+        # still stay silent (and must not hang).
+        self._write_state(
+            {
+                "current_file_key": "ABC",
+                "seen_comments": [],
+                "updated_at": "2099-01-01T00:00:00Z",
+            }
+        )
+        self._assert_silent(self._run_hook(token="faketoken123"))
+
 
 class VizHookOutputSchemaTests(unittest.TestCase):
     """The hook's stdout, when it does emit context, must follow the
@@ -358,6 +482,51 @@ class SetSecretTests(unittest.TestCase):
         result = self._run("--clear", "NEVER_SET")
         self.assertEqual(result.returncode, 0)
         self.assertIn("not set", result.stdout)
+
+    def test_list_masks_value_with_embedded_equals_and_empty(self):
+        # The mask covers the whole RHS (even `a=b=c`), and an empty value is
+        # still shown masked — raw value bytes never leak.
+        self.secrets_path.parent.mkdir(parents=True, exist_ok=True)
+        self.secrets_path.write_text("WITH_EQ=a=b=c=secret\nEMPTYVAL=\n")
+        result = self._run("--list")
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("WITH_EQ", result.stdout)
+        self.assertIn("EMPTYVAL", result.stdout)
+        self.assertNotIn("a=b=c=secret", result.stdout)
+        self.assertNotIn("secret", result.stdout)
+
+    def test_list_skips_comments_blanks_and_no_equals_lines(self):
+        # read_dotenv (via --list) must ignore `#` comments, blank/whitespace
+        # lines, and lines lacking `=`, and strip whitespace around key/value.
+        # Only real KEY=value entries surface as keys.
+        self.secrets_path.parent.mkdir(parents=True, exist_ok=True)
+        self.secrets_path.write_text(
+            "# a comment line\n"
+            "\n"
+            "   \n"
+            "NOEQUALSLINE\n"
+            "REAL_KEY=value\n"
+            "  SPACED_KEY  =  spaced value  \n"
+        )
+        result = self._run("--list")
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        self.assertIn("REAL_KEY=****", result.stdout)
+        self.assertIn("SPACED_KEY=****", result.stdout)
+        # Junk lines never become keys.
+        self.assertNotIn("a comment", result.stdout)
+        self.assertNotIn("NOEQUALSLINE", result.stdout)
+        # Exactly the two real keys are listed.
+        keys = [ln for ln in result.stdout.splitlines() if ln]
+        self.assertEqual(keys, ["REAL_KEY=****", "SPACED_KEY=****"])
+
+    def test_clear_matches_full_key_not_prefix(self):
+        # `--clear A=1` must not match key `A`; the key is the LHS of `=`, so
+        # nothing is removed.
+        self.secrets_path.parent.mkdir(parents=True, exist_ok=True)
+        self.secrets_path.write_text("A=1\nB=2\n")
+        result = self._run("--clear", "A=1")
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(self.secrets_path.read_text(), "A=1\nB=2\n")
 
 
 class VizHookTokenSourceTests(unittest.TestCase):
@@ -542,6 +711,101 @@ class MyClaudeDispatchTests(unittest.TestCase):
         self.assertEqual(r.returncode, 2)
         self.assertIn("unknown command", r.stderr)
 
+    def test_missing_positional_shows_clean_usage_not_internal_name(self):
+        # A command that needs a positional, invoked with none, must show
+        # "my-claude <group> <command>" usage — never the underlying script
+        # filename (viz-set-current.py / set-secret.py).
+        for group, command in [("viz", "set"), ("secret", "set"), ("secret", "clear")]:
+            r = self._run(group, command)
+            self.assertEqual(r.returncode, 2, msg=f"{group} {command}: {r.stderr}")
+            self.assertIn(f"usage: my-claude {group} {command}", r.stderr)
+            self.assertNotIn(".py", r.stderr, msg=f"leaked internal name: {r.stderr}")
+
+    def test_zero_arg_command_rejects_extra_args(self):
+        r = self._run("viz", "clear", "UNEXPECTED")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("usage: my-claude viz clear", r.stderr)
+        self.assertNotIn(".py", r.stderr)
+
+    def test_all_help_forms_emit_identical_text(self):
+        # `help`, `-h`, `--help`, and no-args must all print the same usage.
+        outs = {self._run(a).stdout for a in ("help", "-h", "--help")}
+        outs.add(self._run().stdout)
+        self.assertEqual(len(outs), 1, msg=f"help forms diverged: {outs}")
+
+    def test_errors_go_to_stderr_with_empty_stdout(self):
+        # Human-facing errors are written to stderr; stdout stays empty so the
+        # CLI is safe to pipe.
+        for args in (("bogus",), ("secret", "frobnicate"), ("viz", "set")):
+            r = self._run(*args)
+            self.assertEqual(r.returncode, 2, msg=f"{args}: {r.stderr}")
+            self.assertEqual(r.stdout, "", msg=f"{args} leaked stdout: {r.stdout!r}")
+            self.assertNotEqual(r.stderr, "", msg=f"{args}: empty stderr")
+
+    def test_every_group_without_command_exits_2(self):
+        # The "needs a command" guard applies to each group, listing its verbs.
+        for group in ("viz", "statusline"):
+            r = self._run(group)
+            self.assertEqual(r.returncode, 2, msg=f"{group}: {r.stderr}")
+            self.assertIn("needs a command", r.stderr)
+            self.assertIn(group, r.stderr)
+
+    def test_one_arg_commands_reject_extra_args(self):
+        # Commands taking exactly one positional reject a second, with clean
+        # usage (never the underlying script filename).
+        for group, command in [
+            ("viz", "set"),
+            ("secret", "set"),
+            ("secret", "clear"),
+        ]:
+            r = self._run(group, command, "A", "B")
+            self.assertEqual(r.returncode, 2, msg=f"{group} {command}: {r.stderr}")
+            self.assertIn(f"usage: my-claude {group} {command}", r.stderr)
+            self.assertNotIn(".py", r.stderr)
+
+    def test_zero_arg_commands_reject_extra_args(self):
+        # `secret list` and `statusline install` take no positional.
+        for group, command in [("secret", "list"), ("statusline", "install")]:
+            r = self._run(group, command, "extra")
+            self.assertEqual(r.returncode, 2, msg=f"{group} {command}: {r.stderr}")
+            self.assertIn(f"usage: my-claude {group} {command}", r.stderr)
+
+    def test_viz_set_rejects_whitespace_only_value(self):
+        # The dispatcher rejects an all-whitespace value before routing (the
+        # underlying script would otherwise accept it verbatim).
+        r = self._run("viz", "set", "   ")
+        self.assertEqual(r.returncode, 2)
+        self.assertFalse((self.claude_dir / "viz-state.json").exists())
+
+    def test_flag_looking_value_is_tracked_not_parsed_as_option(self):
+        # A value that looks like an option (`--clear`, or a leading-dash key
+        # behind an explicit `--`) is passed through as the file key, not
+        # interpreted as a flag.
+        r = self._run("viz", "set", "--clear")
+        self.assertEqual(r.returncode, 0, msg=r.stderr)
+        state = json.loads((self.claude_dir / "viz-state.json").read_text())
+        self.assertEqual(state["current_file_key"], "--clear")
+        r = self._run("viz", "set", "--", "-weirdkey")
+        self.assertEqual(r.returncode, 0, msg=r.stderr)
+        state = json.loads((self.claude_dir / "viz-state.json").read_text())
+        self.assertEqual(state["current_file_key"], "-weirdkey")
+
+    def test_relative_home_resolves_under_cwd(self):
+        # A relative $HOME still works: state lands under cwd-relative HOME,
+        # never escaping the sandbox (cwd pinned to tmpdir).
+        rel = Path(self.tmpdir) / "relhome"
+        r = subprocess.run(
+            [str(MY_CLAUDE), "viz", "set", "K"],
+            input="",
+            capture_output=True,
+            text=True,
+            env={**os.environ, "HOME": "relhome"},
+            cwd=self.tmpdir,
+            timeout=10.0,
+        )
+        self.assertEqual(r.returncode, 0, msg=r.stderr)
+        self.assertTrue((rel / ".claude" / "viz-state.json").exists())
+
     # ---- routing to underlying scripts ----
 
     def test_viz_set_routes_and_writes_state(self):
@@ -607,6 +871,230 @@ class MyClaudeDispatchTests(unittest.TestCase):
         r = _run([str(copy), "viz", "clear"], env_extra={"HOME": self.tmpdir})
         self.assertEqual(r.returncode, 1, msg=r.stdout + r.stderr)
         self.assertIn("missing target script", r.stderr)
+
+
+def _load_module(path: Path, name: str):
+    """Import a script by file path (hyphenated names can't use `import`).
+
+    The module's `if __name__ == "__main__"` guard keeps main()/_main() from
+    running on load.
+
+    The scripts do a bare `from _lib import ...`; when run normally their own
+    dir is sys.path[0]. importlib doesn't add it, so put scripts/ on the path
+    (idempotent) — otherwise the import fails under `unittest discover`, which,
+    unlike pytest, doesn't seed sys.path with the repo dirs.
+    """
+    scripts_dir = str(REPO_ROOT / "scripts")
+    if scripts_dir not in sys.path:
+        sys.path.insert(0, scripts_dir)
+    spec = importlib.util.spec_from_file_location(name, str(path))
+    assert spec is not None and spec.loader is not None
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class _FakeFigmaResponse:
+    """Minimal stand-in for urlopen()'s context-managed response.
+
+    json.load(r) calls r.read(); we return canned JSON bytes.
+    """
+
+    def __init__(self, body: dict):
+        self._bytes = json.dumps(body).encode("utf-8")
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def read(self, *_args):
+        return self._bytes
+
+
+class VizHookNetworkTests(unittest.TestCase):
+    """Exercise viz-comments.py's network -> filter -> emit -> persist path
+    in-process with a mocked Figma API (the suite's long-standing gap).
+
+    Loaded as a module so we can patch STATE_PATH/SECRETS_PATH/TTL and stub
+    urlopen; the subprocess tests cover the silent-no-op guards separately.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.mod = _load_module(HOOK, "viz_comments_under_test")
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp(prefix="viz_hook_net_")
+        self.addCleanup(shutil.rmtree, self.tmpdir, ignore_errors=True)
+        self.state_path = Path(self.tmpdir) / ".claude" / "viz-state.json"
+        self.secrets_path = Path(self.tmpdir) / ".claude" / "secrets.env"
+        self.state_path.parent.mkdir(parents=True, exist_ok=True)
+        self.secrets_path.write_text("FIGMA_PERSONAL_ACCESS_TOKEN=figp_test\n")
+        # Point the module at our temp paths; neutralize TTL so a fixed
+        # timestamp always counts as fresh.
+        self._patches = [
+            unittest.mock.patch.object(self.mod, "STATE_PATH", self.state_path),
+            unittest.mock.patch.object(self.mod, "SECRETS_PATH", self.secrets_path),
+            unittest.mock.patch.object(self.mod, "TTL_SECONDS", 10**12),
+        ]
+        for p in self._patches:
+            p.start()
+            self.addCleanup(p.stop)
+
+    def _write_state(self, *, key="KEY1", seen=None):
+        self.state_path.write_text(
+            json.dumps(
+                {
+                    "current_file_key": key,
+                    "seen_comments": seen or [],
+                    "updated_at": "2026-05-01T00:00:00Z",
+                }
+            )
+        )
+
+    def _run_with_body(self, body: dict) -> str:
+        """Run _main() with urlopen stubbed to return `body`; return stdout."""
+        buf = io.StringIO()
+        with unittest.mock.patch(
+            "urllib.request.urlopen", return_value=_FakeFigmaResponse(body)
+        ):
+            with contextlib.redirect_stdout(buf):
+                self.mod._main()
+        return buf.getvalue()
+
+    def _state(self):
+        return json.loads(self.state_path.read_text())
+
+    def test_emits_envelope_and_filters_resolved_and_seen(self):
+        self._write_state(seen=["c0"])
+        body = {
+            "comments": [
+                {"id": "c0", "message": "old", "user": {"handle": "bob"}},  # seen
+                {"id": "c1", "message": "needs work", "user": {"handle": "alice"}},
+                {"id": "c2", "message": "done", "resolved_at": "2026-05-02T00:00:00Z"},
+                {"id": "c3", "message": "no user", "user": "not-a-dict"},  # -> unknown
+                "not-a-comment-dict",  # non-dict entry -> skipped
+                {"id": 123, "message": "numeric id"},  # non-str id -> skipped
+            ]
+        }
+        out = self._run_with_body(body)
+        payload = json.loads(out)
+        # Exact Claude Code UserPromptSubmit envelope.
+        self.assertEqual(
+            set(payload), {"hookSpecificOutput"}, msg=f"unexpected top-level: {payload}"
+        )
+        hso = payload["hookSpecificOutput"]
+        self.assertEqual(hso["hookEventName"], "UserPromptSubmit")
+        ctx = hso["additionalContext"]
+        # Unseen, unresolved comments present with author + id + message.
+        self.assertIn("[alice] (id=c1): needs work", ctx)
+        self.assertIn("[unknown] (id=c3): no user", ctx)
+        self.assertIn("2 unread", ctx)
+        # Seen (c0) and resolved (c2) excluded.
+        self.assertNotIn("c0", ctx)
+        self.assertNotIn("c2", ctx)
+        # Persisted seen = (old seen ∩ current ids) ∪ newly surfaced ids.
+        self.assertEqual(self._state()["seen_comments"], ["c0", "c1", "c3"])
+
+    def test_second_run_same_body_is_silent_noop(self):
+        self._write_state()
+        body = {"comments": [{"id": "c1", "message": "hi", "user": {"handle": "a"}}]}
+        first = self._run_with_body(body)
+        self.assertIn("hookSpecificOutput", first)
+        self.assertEqual(self._state()["seen_comments"], ["c1"])
+        # Same body again → already seen → no output.
+        second = self._run_with_body(body)
+        self.assertEqual(second, "", msg=f"expected silent re-run, got: {second!r}")
+
+    def test_noop_turn_prunes_stale_seen_ids(self):
+        # All comments already seen, plus a stale id the API no longer returns.
+        self._write_state(seen=["c1", "stale"])
+        body = {"comments": [{"id": "c1", "message": "hi", "user": {"handle": "a"}}]}
+        out = self._run_with_body(body)
+        self.assertEqual(out, "", "no unseen comments → no stdout")
+        # 'stale' pruned (not in current_ids); 'c1' kept.
+        self.assertEqual(self._state()["seen_comments"], ["c1"])
+
+    def test_non_dict_api_body_is_noop(self):
+        self._write_state()
+        out = self._run_with_body(["not", "a", "dict"])  # body isn't a dict
+        self.assertEqual(out, "")
+
+    def test_comments_not_a_list_is_noop(self):
+        self._write_state()
+        out = self._run_with_body({"comments": "nope"})
+        self.assertEqual(out, "")
+
+    def test_urlopen_error_is_silent_noop(self):
+        self._write_state()
+        buf = io.StringIO()
+        import urllib.error
+
+        with unittest.mock.patch(
+            "urllib.request.urlopen",
+            side_effect=urllib.error.URLError("boom"),
+        ):
+            with contextlib.redirect_stdout(buf):
+                self.mod._main()
+        self.assertEqual(buf.getvalue(), "")
+        # State untouched on network failure.
+        self.assertEqual(self._state()["seen_comments"], [])
+
+    def test_token_read_from_dotenv(self):
+        # No env var set; token must come from the secrets.env we wrote.
+        with unittest.mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("FIGMA_PERSONAL_ACCESS_TOKEN", None)
+            self.assertEqual(self.mod._read_token(), "figp_test")
+
+
+class SetSecretWritePathTests(unittest.TestCase):
+    """The getpass success path (and empty-value abort) can't be driven via
+    subprocess — set-secret.py refuses non-tty stdin. Exercise in-process with
+    getpass + isatty mocked."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.mod = _load_module(SET_SECRET, "set_secret_under_test")
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp(prefix="set_secret_write_")
+        self.addCleanup(shutil.rmtree, self.tmpdir, ignore_errors=True)
+        self.secrets_path = Path(self.tmpdir) / ".claude" / "secrets.env"
+        p = unittest.mock.patch.object(self.mod, "SECRETS_PATH", self.secrets_path)
+        p.start()
+        self.addCleanup(p.stop)
+
+    def _run_set(self, key, *, value):
+        with unittest.mock.patch("sys.argv", ["set-secret.py", key]):
+            with unittest.mock.patch("sys.stdin.isatty", return_value=True):
+                with unittest.mock.patch.object(
+                    self.mod.getpass, "getpass", return_value=value
+                ):
+                    return self.mod.main()
+
+    def test_stores_value_with_mode_0600(self):
+        rc = self._run_set("FIGMA_PERSONAL_ACCESS_TOKEN", value="figp_secret")
+        self.assertEqual(rc, 0)
+        env = self.mod._read()
+        self.assertEqual(env["FIGMA_PERSONAL_ACCESS_TOKEN"], "figp_secret")
+        mode = self.secrets_path.stat().st_mode & 0o777
+        self.assertEqual(mode, 0o600, f"expected 0600, got 0o{mode:o}")
+
+    def test_empty_value_aborts_without_writing(self):
+        rc = self._run_set("FIGMA_PERSONAL_ACCESS_TOKEN", value="   ")
+        self.assertEqual(rc, 2)
+        self.assertFalse(self.secrets_path.exists())
+
+    def test_upsert_preserves_other_keys(self):
+        self.secrets_path.parent.mkdir(parents=True, exist_ok=True)
+        self.secrets_path.write_text("OTHER=keepme\n")
+        rc = self._run_set("NEWKEY", value="newval")
+        self.assertEqual(rc, 0)
+        env = self.mod._read()
+        self.assertEqual(env["OTHER"], "keepme")
+        self.assertEqual(env["NEWKEY"], "newval")
 
 
 if __name__ == "__main__":

@@ -18,7 +18,6 @@ Contract under test (in order matching script flow):
 
 from __future__ import annotations
 
-import importlib.util
 import json
 import os
 import shutil
@@ -28,7 +27,6 @@ import sys
 import tempfile
 import time
 import unittest
-import unittest.mock
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -83,6 +81,9 @@ def make_sandboxed_installer(
     installer_dst = sandbox / "install-statusline.py"
     shutil.copy2(INSTALLER, installer_dst)
     installer_dst.chmod(0o755)
+    # The installer imports its sibling _lib; the whole scripts/ dir ships
+    # together, so the sandbox must carry _lib alongside it.
+    shutil.copy2(REPO_ROOT / "scripts" / "_lib.py", sandbox / "_lib.py")
 
     sibling = sandbox / "statusline.py"
     if sibling_is_dir:
@@ -894,116 +895,6 @@ class AtomicWriteTests(InstallerTestBase):
 
 
 # =============================================================================
-# _atomic_write direct unit tests (cleanup branch via mock)
-# =============================================================================
-
-
-def _load_installer_module():
-    """Import scripts/install-statusline.py as a module for direct unit testing.
-
-    The hyphenated filename can't be imported via `import` syntax, so we use
-    importlib. The module's `if __name__ == "__main__"` guard prevents main()
-    from running on load.
-    """
-    spec = importlib.util.spec_from_file_location(
-        "install_statusline_internal", str(INSTALLER)
-    )
-    assert spec is not None and spec.loader is not None
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
-
-
-class AtomicWriteUnitTests(unittest.TestCase):
-    """Direct unit tests for _atomic_write to exercise the cleanup branch.
-
-    Subprocess-based failure tests can't reliably reach `_atomic_write`'s
-    `except BaseException` cleanup — they fail at `mkstemp` before the `try`
-    block runs. These tests mock `os.replace` to force a failure mid-write
-    and verify the temp file is cleaned up.
-    """
-
-    @classmethod
-    def setUpClass(cls):
-        cls.mod = _load_installer_module()
-
-    def setUp(self):
-        self.tmp = Path(tempfile.mkdtemp(prefix="atomic_write_unit_"))
-        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
-        self.target = self.tmp / "settings.json"
-
-    def _leftover_tmp_files(self) -> list[str]:
-        return sorted(p.name for p in self.tmp.iterdir() if p.name != self.target.name)
-
-    def test_cleanup_on_replace_failure_when_target_exists(self):
-        """os.replace raises → tmp file unlinked, original byte-identical."""
-        self.target.write_text('{"foo": "bar"}\n')
-        os.chmod(self.target, 0o644)
-        original = self.target.read_bytes()
-
-        with unittest.mock.patch(
-            "os.replace", side_effect=OSError("simulated replace failure")
-        ):
-            with self.assertRaises(OSError):
-                self.mod._atomic_write(self.target, '{"new": "data"}\n')
-
-        self.assertEqual(
-            self._leftover_tmp_files(),
-            [],
-            "temp file not cleaned up after replace failure",
-        )
-        self.assertEqual(self.target.read_bytes(), original)
-
-    def test_cleanup_on_replace_failure_when_target_absent(self):
-        """Bootstrap path: replace fails, no target file ever existed."""
-        self.assertFalse(self.target.exists())
-
-        with unittest.mock.patch(
-            "os.replace", side_effect=OSError("simulated replace failure")
-        ):
-            with self.assertRaises(OSError):
-                self.mod._atomic_write(self.target, "{}\n")
-
-        self.assertEqual(
-            self._leftover_tmp_files(),
-            [],
-            "temp file not cleaned up after bootstrap replace failure",
-        )
-        self.assertFalse(self.target.exists(), "target file should not exist")
-
-    def test_cleanup_on_write_failure(self):
-        """If the write call fails (mid-stream), temp file is still cleaned up."""
-        self.target.write_text('{"foo": "bar"}\n')
-
-        real_fdopen = os.fdopen
-
-        class _FailingWriter:
-            def __init__(self, fd, *args, **kwargs):
-                # Close the real fd (release resources) then fail on write.
-                self._inner = real_fdopen(fd, *args, **kwargs)
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *exc):
-                self._inner.close()
-                return False
-
-            def write(self, _data):
-                raise OSError("simulated write failure")
-
-        with unittest.mock.patch("os.fdopen", side_effect=_FailingWriter):
-            with self.assertRaises(OSError):
-                self.mod._atomic_write(self.target, "doesn't matter")
-
-        self.assertEqual(
-            self._leftover_tmp_files(),
-            [],
-            "temp file not cleaned up after write failure",
-        )
-
-
-# =============================================================================
 # Preserving other top-level keys
 # =============================================================================
 
@@ -1196,6 +1087,9 @@ class InstallerInvokedViaSymlinkTests(InstallerTestBase):
         real_installer = real_dir / "install-statusline.py"
         shutil.copy2(INSTALLER, real_installer)
         real_installer.chmod(0o755)
+        # _lib must live beside the real installer (it imports it); the
+        # resolve()-based sibling lookup should find both at the real dir.
+        shutil.copy2(REPO_ROOT / "scripts" / "_lib.py", real_dir / "_lib.py")
         real_sibling = real_dir / "statusline.py"
         real_sibling.write_text("#!/usr/bin/env python3\nprint('hi')\n")
         real_sibling.chmod(0o644)

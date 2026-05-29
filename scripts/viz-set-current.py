@@ -18,7 +18,13 @@ from pathlib import Path
 from _lib import atomic_write
 
 STATE_PATH = Path.home() / ".claude" / "viz-state.json"
-URL_RE = re.compile(r"figma\.com/(?:board|design|file)/([A-Za-z0-9_-]+)")
+# Match every comment-bearing figma.com canvas type, not just file/design/board
+# (proto/slides/deck links are common too). IGNORECASE so an uppercase/mixed-case
+# host (FIGMA.COM, www.Figma.com) or path segment (/DESIGN/) still yields the key.
+URL_RE = re.compile(
+    r"figma\.com/(?:board|design|file|proto|slides|deck)/([A-Za-z0-9_-]+)",
+    re.IGNORECASE,
+)
 
 
 def main() -> int:

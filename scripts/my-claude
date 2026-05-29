@@ -14,16 +14,19 @@ from pathlib import Path
 
 SCRIPTS_DIR = Path(__file__).resolve().parent
 
-# (group, command) -> (target script, leading args prepended before user args).
-# The user's trailing args are appended verbatim, so e.g.
+# (group, command) -> (target script, leading args, positional-arg usage).
+# Leading args are prepended before the user's, so e.g.
 #   my-claude secret clear FOO  ->  set-secret.py --clear FOO
-ROUTES: dict[tuple[str, str], tuple[str, list[str]]] = {
-    ("secret", "set"): ("set-secret.py", []),
-    ("secret", "list"): ("set-secret.py", ["--list"]),
-    ("secret", "clear"): ("set-secret.py", ["--clear"]),
-    ("viz", "set"): ("viz-set-current.py", []),
-    ("viz", "clear"): ("viz-set-current.py", ["--clear"]),
-    ("statusline", "install"): ("install-statusline.py", []),
+# The third field names the one positional this command takes ("" = none); the
+# dispatcher validates arity itself so the underlying script's usage text (which
+# names internal files and remapped flags) is never surfaced to the user.
+ROUTES: dict[tuple[str, str], tuple[str, list[str], str]] = {
+    ("secret", "set"): ("set-secret.py", [], "<KEY>"),
+    ("secret", "list"): ("set-secret.py", ["--list"], ""),
+    ("secret", "clear"): ("set-secret.py", ["--clear"], "<KEY>"),
+    ("viz", "set"): ("viz-set-current.py", [], "<figma-url-or-file-key>"),
+    ("viz", "clear"): ("viz-set-current.py", ["--clear"], ""),
+    ("statusline", "install"): ("install-statusline.py", [], ""),
 }
 
 # Human-facing help, grouped. Kept in sync with ROUTES by hand (small + stable).
@@ -94,15 +97,35 @@ def main(argv: list[str]) -> int:
         )
         return 2
 
-    script, lead = route
+    script, lead, arg_usage = route
+    user_args = argv[2:]
+    # Honor an explicit end-of-options marker: `my-claude viz set -- -x` should
+    # treat -x as the value, not count `--` toward arity.
+    if user_args and user_args[0] == "--":
+        user_args = user_args[1:]
+
+    # Own arity validation so a clean "usage: my-claude <group> <command> ..."
+    # is shown instead of the underlying script's internal usage line.
+    if arg_usage:
+        if len(user_args) != 1 or not user_args[0].strip():
+            print(f"usage: my-claude {group} {command} {arg_usage}", file=sys.stderr)
+            return 2
+    elif user_args:
+        print(f"usage: my-claude {group} {command}", file=sys.stderr)
+        return 2
+
     target = SCRIPTS_DIR / script
     if not target.is_file():
         print(f"my-claude: missing target script {target}", file=sys.stderr)
         return 1
 
+    # `--` so a positional that starts with a dash (e.g. a file key literally
+    # named "--clear") is passed through as a value, not parsed as a flag.
+    passthrough = ["--", *user_args] if user_args else []
+
     # Replace this process so interactive prompts (e.g. getpass on `secret set`)
     # keep the real tty, and the child's exit status is reported directly.
-    cmd = [sys.executable, str(target), *lead, *argv[2:]]
+    cmd = [sys.executable, str(target), *lead, *passthrough]
     os.execv(sys.executable, cmd)
 
 

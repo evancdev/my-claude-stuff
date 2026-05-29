@@ -575,6 +575,26 @@ class TranscriptDefensiveTests(StatuslineTestBase):
         result = run_script(make_stdin(transcript_path=path))
         self.assert_line(result, "widget | opus | 10 tok")
 
+    def test_non_dict_json_lines_after_last_usage_row_skipped(self):
+        # Valid-JSON-but-non-dict lines positioned AFTER the last usage row.
+        # The reverse scan reaches these first and feeds them to _row_usage,
+        # which must reject a non-dict row (the isinstance guard) and keep
+        # scanning backwards to the real usage row. In the existing
+        # test_non_object_json_lines_skipped the non-dict lines precede the
+        # usage row, so the scan returns before ever passing them to
+        # _row_usage — this orders them so that path is actually exercised.
+        path = self.make_transcript(
+            [
+                usage_row(input_tokens=7, output_tokens=3),
+                "[1, 2, 3]",
+                "42",
+                '"a string"',
+                "true",
+            ]
+        )
+        result = run_script(make_stdin(transcript_path=path))
+        self.assert_line(result, "widget | opus | 10 tok")
+
     def test_trailing_blank_lines_ignored(self):
         path = self.make_transcript(
             [
