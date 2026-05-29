@@ -63,14 +63,14 @@ def main() -> int:
         if args.key in env:
             del env[args.key]
             _write(env)
-            print(f"set-secret: removed {args.key}")
+            print(f"removed {args.key}")
         else:
-            print(f"set-secret: {args.key} not set; nothing to do")
+            print(f"{args.key} not set; nothing to do")
         return 0
 
     if not sys.stdin.isatty():
         print(
-            "set-secret: stdin is not a tty; cannot prompt for hidden input.\n"
+            "stdin is not a tty; cannot prompt for hidden input.\n"
             f"Run this directly from your terminal, or edit {SECRETS_PATH} manually:\n"
             f"  printf '%s=%s\\n' '{args.key}' '<value>' >> {SECRETS_PATH}\n"
             f"  chmod 600 {SECRETS_PATH}",
@@ -78,15 +78,15 @@ def main() -> int:
         )
         return 2
 
-    value = getpass.getpass(f"Value for {args.key}: ").strip()
+    value = getpass.getpass(f"{args.key}: ").strip()
     if not value:
-        print("set-secret: empty value, aborting.", file=sys.stderr)
+        print("empty value, aborting.", file=sys.stderr)
         return 2
 
     env = _read()
     env[args.key] = value
     _write(env)
-    print(f"set-secret: {args.key} saved to {SECRETS_PATH} (mode 0600)")
+    print(f"{args.key} saved to {SECRETS_PATH}")
     return 0
 
 
