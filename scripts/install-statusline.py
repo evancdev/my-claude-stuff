@@ -11,36 +11,9 @@ import json
 import os
 import stat
 import sys
-import tempfile
 from pathlib import Path
 
-
-def _atomic_write(path: Path, text: str) -> None:
-    # If `path` is a symlink (dotfile-manager setups), resolve through it so
-    # we replace the real file rather than clobbering the symlink.
-    target = path.resolve() if path.is_symlink() else path
-    fd, tmp = tempfile.mkstemp(
-        prefix=target.name + ".", suffix=".tmp", dir=str(target.parent)
-    )
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(text)
-        # mkstemp creates files at 0600; preserve the original mode so we
-        # don't silently tighten user perms on overwrite.
-        try:
-            prev_mode: int | None = stat.S_IMODE(target.stat().st_mode)
-        except FileNotFoundError:
-            prev_mode = None
-        os.replace(tmp, target)
-        if prev_mode is not None:
-            os.chmod(target, prev_mode)
-    except BaseException:
-        # BaseException so KeyboardInterrupt mid-write still cleans up tmp.
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-        raise
+from _lib import atomic_write
 
 
 def main() -> int:
@@ -72,7 +45,7 @@ def main() -> int:
 
     settings_path.parent.mkdir(parents=True, exist_ok=True)
     if not settings_path.exists():
-        _atomic_write(settings_path, "{}\n")
+        atomic_write(settings_path, "{}\n")
 
     try:
         raw = settings_path.read_text(encoding="utf-8")
@@ -114,7 +87,7 @@ def main() -> int:
         )
 
     settings["statusLine"] = desired
-    _atomic_write(
+    atomic_write(
         settings_path,
         json.dumps(settings, indent=2, ensure_ascii=False) + "\n",
     )

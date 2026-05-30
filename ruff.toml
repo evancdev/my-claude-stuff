@@ -1,0 +1,3 @@
+# my-claude is an extensionless CLI entrypoint (a command, not a *.py module),
+# so ruff's default glob skips it. Include it explicitly.
+extend-include = ["scripts/my-claude"]
