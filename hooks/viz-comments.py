@@ -5,7 +5,8 @@ Silent / no-op (exit 0, no stdout) when:
 - no state file, or state file isn't a dict
 - no FIGMA_PERSONAL_ACCESS_TOKEN
 - state older than TTL (default 4h)
-- no unseen comments
+- no unseen comments (comments authored by our own account are skipped, so
+  Claude's posted replies never come back as fresh feedback)
 - any error talking to Figma OR any uncaught exception
 
 A hook must never fail a user prompt. The top-level try/except catches
@@ -43,6 +44,26 @@ def _read_token() -> str | None:
     return env or None
 
 
+def _figma_user_id(token: str) -> str | None:
+    """The token account's own Figma user id, used to filter out Claude's own
+    replies (the token reads and writes as the same account). Returns None if
+    /v1/me is unreachable or the token lacks current_user:read — self-filtering
+    is then simply disabled, never fatal."""
+    req = urllib.request.Request(
+        "https://api.figma.com/v1/me", headers={"X-Figma-Token": token}
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=3) as r:
+            me = json.load(r)
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError):
+        return None
+    if isinstance(me, dict):
+        uid = me.get("id")
+        if isinstance(uid, str) and uid:
+            return uid
+    return None
+
+
 def _main() -> None:
     if not STATE_PATH.is_file():
         return
@@ -71,6 +92,19 @@ def _main() -> None:
         if time.time() - calendar.timegm(t) > TTL_SECONDS:
             return
 
+    # Our own (Claude's) user id, so the bot's replies aren't re-surfaced as
+    # fresh feedback. Cached in state after the first lookup to avoid an extra
+    # request every prompt; None disables filtering (never fatal).
+    self_id = state.get("self_user_id")
+    if not isinstance(self_id, str) or not self_id:
+        self_id = _figma_user_id(token)
+        if self_id:
+            state["self_user_id"] = self_id
+            try:
+                atomic_write(STATE_PATH, json.dumps(state, indent=2))
+            except OSError:
+                pass
+
     req = urllib.request.Request(
         f"https://api.figma.com/v1/files/{key}/comments?as_md=true",
         headers={"X-Figma-Token": token},
@@ -97,6 +131,9 @@ def _main() -> None:
         cid = c.get("id")
         if not isinstance(cid, str):
             continue
+        cuser = c.get("user")
+        if self_id and isinstance(cuser, dict) and cuser.get("id") == self_id:
+            continue  # Claude's own reply — never surface it as feedback
         current_ids.add(cid)
         if cid in seen or c.get("resolved_at"):
             continue

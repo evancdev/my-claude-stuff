@@ -31,6 +31,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SET_CURRENT = REPO_ROOT / "scripts" / "viz-set-current.py"
 SET_SECRET = REPO_ROOT / "scripts" / "set-secret.py"
+VIZ_REPLY = REPO_ROOT / "scripts" / "viz-reply.py"
 HOOK = REPO_ROOT / "hooks" / "viz-comments.py"
 TRACK = REPO_ROOT / "hooks" / "viz-track.py"
 HOOKS_JSON = REPO_ROOT / "hooks" / "hooks.json"
@@ -656,6 +657,11 @@ class VizWiringTests(unittest.TestCase):
         first = HOOK.read_text().splitlines()[0]
         self.assertTrue(first.startswith("#!"), f"missing shebang: {first!r}")
 
+    def test_viz_reply_script_is_executable_with_shebang(self):
+        self.assertTrue(os.access(VIZ_REPLY, os.X_OK), f"{VIZ_REPLY} not executable")
+        first = VIZ_REPLY.read_text().splitlines()[0]
+        self.assertTrue(first.startswith("#!"), f"missing shebang: {first!r}")
+
 
 class MyClaudeDispatchTests(unittest.TestCase):
     """The `my-claude` entrypoint routes `<group> <command> [args]` to the
@@ -853,6 +859,33 @@ class MyClaudeDispatchTests(unittest.TestCase):
             msg=settings["statusLine"],
         )
 
+    # ---- viz reply (two-arg, greedy message) ----
+
+    def test_viz_reply_missing_args_show_clean_usage(self):
+        # No args, or id-without-message, must show the multi-arg usage and
+        # never leak the underlying script filename.
+        for args in (("viz", "reply"), ("viz", "reply", "c1")):
+            r = self._run(*args)
+            self.assertEqual(r.returncode, 2, msg=f"{args}: {r.stderr}")
+            self.assertIn("usage: my-claude viz reply", r.stderr)
+            self.assertIn("<comment-id> <message>", r.stderr)
+            self.assertNotIn(".py", r.stderr)
+
+    def test_viz_reply_routes_id_and_multiword_message_to_script(self):
+        # With no token in the temp HOME, viz-reply.py reports the missing
+        # token and exits 2 — proving the dispatcher routed the id + greedy
+        # multi-word message through to the script (not a usage error).
+        r = self._run("viz", "reply", "c1", "moved the auth node left")
+        self.assertEqual(r.returncode, 2, msg=r.stderr)
+        self.assertIn("FIGMA_PERSONAL_ACCESS_TOKEN", r.stderr)
+        self.assertNotIn("usage: my-claude", r.stderr)
+
+    def test_viz_reply_whitespace_only_message_rejected(self):
+        # A whitespace-only token fails the dispatcher's non-empty check.
+        r = self._run("viz", "reply", "c1", "   ")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("usage: my-claude viz reply", r.stderr)
+
     # ---- wiring ----
 
     def test_my_claude_is_executable_with_shebang(self):
@@ -943,16 +976,15 @@ class VizHookNetworkTests(unittest.TestCase):
             p.start()
             self.addCleanup(p.stop)
 
-    def _write_state(self, *, key="KEY1", seen=None):
-        self.state_path.write_text(
-            json.dumps(
-                {
-                    "current_file_key": key,
-                    "seen_comments": seen or [],
-                    "updated_at": "2026-05-01T00:00:00Z",
-                }
-            )
-        )
+    def _write_state(self, *, key="KEY1", seen=None, self_id=None):
+        data = {
+            "current_file_key": key,
+            "seen_comments": seen or [],
+            "updated_at": "2026-05-01T00:00:00Z",
+        }
+        if self_id:
+            data["self_user_id"] = self_id
+        self.state_path.write_text(json.dumps(data))
 
     def _run_with_body(self, body: dict) -> str:
         """Run _main() with urlopen stubbed to return `body`; return stdout."""
@@ -1048,6 +1080,51 @@ class VizHookNetworkTests(unittest.TestCase):
             os.environ.pop("FIGMA_PERSONAL_ACCESS_TOKEN", None)
             self.assertEqual(self.mod._read_token(), "figp_test")
 
+    def test_cached_self_id_filters_own_comments_without_me_lookup(self):
+        # With self_user_id cached, the hook skips the /v1/me call (single
+        # urlopen) and drops comments authored by that id — Claude's own
+        # replies never come back as feedback.
+        self._write_state(self_id="U_ME")
+        out = self._run_with_body(
+            {
+                "comments": [
+                    {"id": "mine", "message": "done", "user": {"id": "U_ME"}},
+                    {
+                        "id": "theirs",
+                        "message": "fix",
+                        "user": {"id": "U_X", "handle": "x"},
+                    },
+                ]
+            }
+        )
+        self.assertIn("(id=theirs)", out)
+        self.assertNotIn("id=mine", out)
+        self.assertIn("1 unread", out)
+        # Only the other author's comment is recorded as seen.
+        self.assertEqual(self._state()["seen_comments"], ["theirs"])
+
+    def test_self_id_fetched_from_me_then_cached_and_filtered(self):
+        # No cached id → hook calls /v1/me (1st urlopen), then comments (2nd),
+        # filters its own comment, and caches the id for next time.
+        self._write_state()
+        me = _FakeFigmaResponse({"id": "U_ME", "handle": "claude"})
+        comments = _FakeFigmaResponse(
+            {
+                "comments": [
+                    {"id": "mine", "message": "ok", "user": {"id": "U_ME"}},
+                    {"id": "theirs", "message": "tweak it", "user": {"id": "U_O"}},
+                ]
+            }
+        )
+        buf = io.StringIO()
+        with unittest.mock.patch("urllib.request.urlopen", side_effect=[me, comments]):
+            with contextlib.redirect_stdout(buf):
+                self.mod._main()
+        out = buf.getvalue()
+        self.assertIn("(id=theirs)", out)
+        self.assertNotIn("id=mine", out)
+        self.assertEqual(self._state().get("self_user_id"), "U_ME")
+
 
 class SetSecretWritePathTests(unittest.TestCase):
     """The getpass success path (and empty-value abort) can't be driven via
@@ -1095,6 +1172,174 @@ class SetSecretWritePathTests(unittest.TestCase):
         env = self.mod._read()
         self.assertEqual(env["OTHER"], "keepme")
         self.assertEqual(env["NEWKEY"], "newval")
+
+
+class _RecordingApi:
+    """Stub for urllib.request.urlopen used by viz-reply.py: returns canned
+    JSON for the GET comments listing and the POST reply, recording each
+    Request so tests can assert the posted method/body. Optionally raises a
+    canned error on the POST."""
+
+    def __init__(self, comments, reply=None, post_error=None):
+        self._comments = comments
+        self._reply = reply or {"id": "reply_default"}
+        self._post_error = post_error
+        self.calls = []
+
+    def __call__(self, req, timeout=None):
+        self.calls.append(req)
+        if req.get_method() == "POST":
+            if self._post_error is not None:
+                raise self._post_error
+            return _FakeFigmaResponse(self._reply)
+        return _FakeFigmaResponse({"comments": self._comments})
+
+    def posted_body(self):
+        for req in self.calls:
+            if req.get_method() == "POST":
+                return json.loads(req.data.decode("utf-8"))
+        return None
+
+    def did_post(self):
+        return any(req.get_method() == "POST" for req in self.calls)
+
+
+class VizReplyTests(unittest.TestCase):
+    """viz-reply.py: resolve a comment to its thread root, POST a reply, and
+    record the new id so the comments hook won't re-surface it. Driven
+    in-process with urlopen stubbed (no real Figma calls)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.mod = _load_module(VIZ_REPLY, "viz_reply_under_test")
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp(prefix="viz_reply_")
+        self.addCleanup(shutil.rmtree, self.tmpdir, ignore_errors=True)
+        self.state_path = Path(self.tmpdir) / ".claude" / "viz-state.json"
+        self.secrets_path = Path(self.tmpdir) / ".claude" / "secrets.env"
+        self.state_path.parent.mkdir(parents=True, exist_ok=True)
+        self.secrets_path.write_text("FIGMA_PERSONAL_ACCESS_TOKEN=figp_test\n")
+        for attr, val in (
+            ("STATE_PATH", self.state_path),
+            ("SECRETS_PATH", self.secrets_path),
+        ):
+            p = unittest.mock.patch.object(self.mod, attr, val)
+            p.start()
+            self.addCleanup(p.stop)
+        # Ensure the env-var fallback can't leak a real token into tests.
+        env_p = unittest.mock.patch.dict(os.environ, {}, clear=False)
+        env_p.start()
+        self.addCleanup(env_p.stop)
+        os.environ.pop("FIGMA_PERSONAL_ACCESS_TOKEN", None)
+
+    def _track(self, key="FILEKEY", seen=None):
+        self.state_path.write_text(
+            json.dumps({"current_file_key": key, "seen_comments": seen or []})
+        )
+
+    def _state(self):
+        return json.loads(self.state_path.read_text())
+
+    def _run(self, argv, api):
+        buf_out, buf_err = io.StringIO(), io.StringIO()
+        with unittest.mock.patch("urllib.request.urlopen", api):
+            with contextlib.redirect_stdout(buf_out):
+                with contextlib.redirect_stderr(buf_err):
+                    rc = self.mod.main(argv)
+        return rc, buf_out.getvalue(), buf_err.getvalue()
+
+    def test_reply_to_root_posts_to_that_id_and_records_seen(self):
+        self._track()
+        api = _RecordingApi(
+            comments=[{"id": "root1", "parent_id": ""}], reply={"id": "reply99"}
+        )
+        rc, out, err = self._run(["root1", "looks", "good"], api)
+        self.assertEqual(rc, 0, msg=err)
+        body = api.posted_body()
+        self.assertEqual(body["comment_id"], "root1")
+        self.assertEqual(body["message"], "looks good")
+        # New reply id recorded so the hook won't re-surface Claude's own reply.
+        self.assertIn("reply99", self._state()["seen_comments"])
+
+    def test_reply_to_a_reply_resolves_to_thread_root(self):
+        # Figma forbids replying to a reply; the command must target the root.
+        self._track()
+        api = _RecordingApi(
+            comments=[
+                {"id": "root1", "parent_id": ""},
+                {"id": "child2", "parent_id": "root1"},
+            ],
+            reply={"id": "r3"},
+        )
+        rc, out, err = self._run(["child2", "done"], api)
+        self.assertEqual(rc, 0, msg=err)
+        self.assertEqual(api.posted_body()["comment_id"], "root1")
+
+    def test_unknown_comment_id_errors_without_posting(self):
+        self._track()
+        api = _RecordingApi(comments=[{"id": "root1", "parent_id": ""}])
+        rc, out, err = self._run(["nope", "hi"], api)
+        self.assertEqual(rc, 1)
+        self.assertFalse(api.did_post(), "must not POST when target id is unknown")
+        self.assertIn("not found", err)
+
+    def test_no_tracked_file_exits_2(self):
+        # No state file at all.
+        api = _RecordingApi(comments=[])
+        rc, out, err = self._run(["c1", "hi"], api)
+        self.assertEqual(rc, 2)
+        self.assertIn("no Figma file tracked", err)
+        self.assertFalse(api.did_post())
+
+    def test_no_token_exits_2(self):
+        self._track()
+        self.secrets_path.unlink()
+        api = _RecordingApi(comments=[{"id": "root1", "parent_id": ""}])
+        rc, out, err = self._run(["root1", "hi"], api)
+        self.assertEqual(rc, 2)
+        self.assertIn("FIGMA_PERSONAL_ACCESS_TOKEN", err)
+        self.assertFalse(api.did_post())
+
+    def test_empty_message_exits_2(self):
+        self._track()
+        api = _RecordingApi(comments=[{"id": "root1", "parent_id": ""}])
+        rc, out, err = self._run(["root1", "   "], api)
+        self.assertEqual(rc, 2)
+        self.assertIn("empty reply", err)
+        self.assertFalse(api.did_post())
+
+    def test_http_403_reports_invite_hint_and_exits_1(self):
+        import urllib.error
+
+        self._track()
+        api = _RecordingApi(
+            comments=[{"id": "root1", "parent_id": ""}],
+            post_error=urllib.error.HTTPError(
+                "https://api.figma.com", 403, "Forbidden", None, None
+            ),
+        )
+        rc, out, err = self._run(["root1", "hello"], api)
+        self.assertEqual(rc, 1)
+        self.assertIn("403", err)
+        self.assertIn("file_comments:write", err)
+
+    def test_rate_limit_429_honors_retry_after(self):
+        import email.message
+        import urllib.error
+
+        self._track()
+        hdrs = email.message.Message()
+        hdrs["Retry-After"] = "7"
+        api = _RecordingApi(
+            comments=[{"id": "root1", "parent_id": ""}],
+            post_error=urllib.error.HTTPError(
+                "https://api.figma.com", 429, "Too Many Requests", hdrs, None
+            ),
+        )
+        rc, out, err = self._run(["root1", "hello"], api)
+        self.assertEqual(rc, 1)
+        self.assertIn("retry after 7s", err)
 
 
 if __name__ == "__main__":
