@@ -27,6 +27,7 @@ my-claude help                                  # list commands
 my-claude secret set FIGMA_PERSONAL_ACCESS_TOKEN # store a secret (hidden prompt)
 my-claude secret list                            # list stored keys (values masked)
 my-claude viz set <figma-url-or-key>             # track a Figma file for the comments loop
+my-claude viz reply <comment-id> "<message>"     # reply in a comment thread
 my-claude statusline install                     # register the statusline
 ```
 
@@ -34,5 +35,7 @@ To remove the command: `scripts/install-cli.py --uninstall`.
 
 The Figma token (`my-claude secret set FIGMA_PERSONAL_ACCESS_TOKEN`) is only
 needed for the viz comments loop; generate one at
-https://www.figma.com/settings → Personal access tokens (scope:
-`file_content:read`). Drawing diagrams works without it.
+https://www.figma.com/settings → Personal access tokens. Reading comments needs
+the `file_comments:read` scope; `viz reply` also needs `file_comments:write`
+(and the token's account must be invited to the file with comment access).
+Drawing diagrams works without any token.
