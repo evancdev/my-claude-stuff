@@ -1,0 +1,39 @@
+name: my-claude-stuff-graph
+
+services:
+  neo4j:
+    image: neo4j:5.26-community
+    container_name: my-claude-stuff-graph
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:7474:7474"
+      - "127.0.0.1:7687:7687"
+    environment:
+      NEO4J_AUTH: "neo4j/${NEO4J_PASSWORD:-changeme-graph}"
+      # Mirror into the container so the healthcheck shell can read it.
+      NEO4J_PASSWORD: "${NEO4J_PASSWORD:-changeme-graph}"
+      NEO4J_server_memory_heap_initial__size: "256m"
+      NEO4J_server_memory_heap_max__size: "1G"
+      NEO4J_server_memory_pagecache_size: "256m"
+      NEO4J_PLUGINS: '["apoc"]'
+      NEO4J_apoc_export_file_enabled: "true"
+      NEO4J_apoc_import_file_enabled: "true"
+    volumes:
+      - graph-data:/data
+      - graph-logs:/logs
+      - graph-import:/var/lib/neo4j/import
+      - graph-plugins:/var/lib/neo4j/plugins
+    healthcheck:
+      # NEO4J_PASSWORD is set in the container env above; cypher-shell reads it
+      # automatically when -p is omitted, so the password stays off argv.
+      test: ["CMD-SHELL", "cypher-shell -u neo4j 'RETURN 1' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+volumes:
+  graph-data:
+  graph-logs:
+  graph-import:
+  graph-plugins:
