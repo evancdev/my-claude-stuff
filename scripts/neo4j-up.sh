@@ -14,6 +14,26 @@ set -euo pipefail
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 COMPOSE_FILE="${PLUGIN_ROOT}/docker/neo4j-compose.yml"
 CONTAINER="my-claude-stuff-graph"
+SECRETS_FILE="${HOME:-}/.claude/secrets.env"
+
+# Pull NEO4J_* from ~/.claude/secrets.env (set via `my-claude secret set
+# NEO4J_PASSWORD`) and export them so the detached `docker compose` below picks
+# them up — compose reads ${NEO4J_PASSWORD:-changeme-graph} from this process's
+# environment. An already-exported var wins; secrets.env only fills the gaps.
+secret_val() {
+  # Print the last `KEY=value` assignment for KEY in secrets.env, empty if
+  # absent. The value may contain anything except a newline; only the KEY=
+  # prefix is stripped.
+  [ -f "$SECRETS_FILE" ] || return 0
+  sed -n "s/^$1=//p" "$SECRETS_FILE" | tail -n 1
+}
+for _k in NEO4J_URI NEO4J_USERNAME NEO4J_PASSWORD NEO4J_DATABASE; do
+  if [ -z "${!_k:-}" ]; then
+    _v="$(secret_val "$_k")"
+    [ -n "$_v" ] && export "$_k=$_v"
+  fi
+done
+unset _k _v
 
 run_timed() {
   local secs="$1"; shift

@@ -10,6 +10,26 @@ set -uo pipefail
 
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 CONTAINER="my-claude-stuff-graph"
+SECRETS_FILE="${HOME:-}/.claude/secrets.env"
+
+# Fill NEO4J_* from ~/.claude/secrets.env (set via `my-claude secret set
+# NEO4J_PASSWORD`) when not already exported, so this hook authenticates to the
+# container with the same password compose created it with. An already-exported
+# var wins; secrets.env only fills the gaps.
+secret_val() {
+  # Last `KEY=value` for KEY in secrets.env, empty if absent. Only the KEY=
+  # prefix is stripped; the value may contain anything but a newline.
+  [ -f "$SECRETS_FILE" ] || return 0
+  sed -n "s/^$1=//p" "$SECRETS_FILE" | tail -n 1
+}
+for _k in NEO4J_USERNAME NEO4J_PASSWORD; do
+  if [ -z "${!_k:-}" ]; then
+    _v="$(secret_val "$_k")"
+    [ -n "$_v" ] && export "$_k=$_v"
+  fi
+done
+unset _k _v
+
 NEO4J_USER="${NEO4J_USERNAME:-neo4j}"
 NEO4J_PASS="${NEO4J_PASSWORD:-changeme-graph}"
 LOG_FILE="${TMPDIR:-/tmp}/personal-graph-hook.log"

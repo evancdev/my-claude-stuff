@@ -590,70 +590,42 @@ class ContainerNameCrossFileTests(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# .mcp.json: package coordinates are sensible
+# Launcher: package coordinates are sensible
 # ---------------------------------------------------------------------------
 
 
-class McpJsonPackageCoordinatesTests(unittest.TestCase):
-    """`.mcp.json` uses `uvx` to fetch a package and run it. The
-    package coordinate must be something `uvx` can resolve — i.e. a
-    PyPI name (`mcp-neo4j-cypher`) or a git URL (`git+https://...`),
-    NOT a literal local filesystem path. A relative path would only
-    work on Evan's machine; an absolute /Users/... path is even
-    worse — fails the moment the plugin is installed elsewhere.
+class LauncherPackageCoordinatesTests(unittest.TestCase):
+    """The MCP server is run through scripts/graph-mcp.py, which execs `uvx`
+    with the package coordinate (the wrapper exists so the server can source
+    NEO4J_* from ~/.claude/secrets.env). That coordinate must be something
+    `uvx` can resolve on any machine — a PyPI name (`mcp-neo4j-cypher`) or a
+    git URL (`git+https://...`), NOT a host-specific local path that only
+    works on Evan's box.
     """
 
     def setUp(self):
-        if not MCP_JSON.exists():
-            self.fail(f"missing {MCP_JSON}")
-        self.data = json.loads(MCP_JSON.read_text())
-        self.server = self.data["mcpServers"]["personal-graph"]
+        self.launcher = REPO_ROOT / "scripts" / "graph-mcp.py"
+        if not self.launcher.exists():
+            self.fail(f"missing {self.launcher}")
+        self.text = self.launcher.read_text()
 
-    def test_uvx_args_do_not_reference_absolute_user_path(self):
-        """No /Users/... or /home/... absolute paths in args. uvx
-        should be fetching the package by name or by git URL."""
-        for a in self.server.get("args") or []:
-            if not isinstance(a, str):
-                continue
-            self.assertNotRegex(
-                a,
-                r"^/Users/|^/home/",
-                f"args entry {a!r} contains a host-specific absolute path; "
-                "this won't work for any other user / machine.",
-            )
-
-    def test_uvx_args_have_a_package_or_url_token(self):
-        """uvx <package-name>... — there must be at least one non-flag
-        token that looks like a package coordinate (PyPI name, git URL,
-        or `--from <pkg>` form)."""
-        args = self.server.get("args") or []
-        non_flag = [a for a in args if isinstance(a, str) and not a.startswith("-")]
-        flag_pairs = []
-        for i, a in enumerate(args):
-            if isinstance(a, str) and a in ("--from", "--with"):
-                if i + 1 < len(args):
-                    flag_pairs.append(args[i + 1])
-        candidates = non_flag + flag_pairs
-        self.assertTrue(
-            candidates,
-            f"`uvx` args must include at least one package coordinate; "
-            f"got args={args!r}",
+    def test_launcher_does_not_reference_absolute_user_path(self):
+        """No /Users/... or /home/... absolute paths in the uvx invocation —
+        uvx should fetch the package by name or git URL, never a local path."""
+        self.assertNotRegex(
+            self.text,
+            r"/Users/|/home/",
+            "launcher references a host-specific absolute path; "
+            "this won't work for any other user / machine.",
         )
-        # At least one of those candidates should look like a real
-        # package name or git URL (not a single short noise token).
-        plausible = [
-            c
-            for c in candidates
-            if isinstance(c, str)
-            and (
-                re.match(r"^[a-zA-Z][a-zA-Z0-9_\-]{2,}$", c)
-                or "://" in c
-                or c.startswith("git+")
-            )
-        ]
-        self.assertTrue(
-            plausible,
-            f"none of the uvx args look like a package name or URL: {candidates!r}",
+
+    def test_launcher_has_a_package_or_url_token(self):
+        """The launcher must name a uvx package coordinate (a PyPI name, a git
+        URL, or a `--from <pkg>` form) so `uvx` has something to resolve."""
+        self.assertRegex(
+            self.text,
+            r"mcp-neo4j-cypher|git\+https?://|[a-z]+://",
+            "launcher must include a uvx package coordinate (e.g. mcp-neo4j-cypher)",
         )
 
 
@@ -1038,32 +1010,33 @@ class HookSingleJsonObjectStressTests(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# .mcp.json env vs README env-var documentation
+# launcher env vs README env-var documentation
 # ---------------------------------------------------------------------------
 
 
 class McpEnvDocumentedInReadmeTests(unittest.TestCase):
     """README declares four MCP env vars (NEO4J_URI, NEO4J_USERNAME,
-    NEO4J_PASSWORD, NEO4J_DATABASE) with defaults. Any var the .mcp.json
-    actually reads from process env via ${VAR} should be documented in
-    the README. Catches drift where .mcp.json adds a new env var the
+    NEO4J_PASSWORD, NEO4J_DATABASE) with defaults. Any NEO4J_* var the
+    graph-mcp.py launcher actually resolves should be documented in the
+    README. Catches drift where the launcher adds a new connection var the
     README doesn't mention."""
 
     def setUp(self):
-        if not MCP_JSON.exists():
-            self.fail(f"missing {MCP_JSON}")
+        launcher = REPO_ROOT / "scripts" / "graph-mcp.py"
+        if not launcher.exists():
+            self.fail(f"missing {launcher}")
         if not README_MD.exists():
             self.fail(f"missing {README_MD}")
-        self.mcp_raw = MCP_JSON.read_text()
+        self.launcher_raw = launcher.read_text()
         self.readme = README_MD.read_text()
 
-    def test_every_neo4j_env_var_in_mcp_is_documented_in_readme(self):
-        # Find all NEO4J_* interpolations in .mcp.json.
-        vars_in_mcp = set(re.findall(r"\$\{(NEO4J_[A-Z_]+)", self.mcp_raw))
-        undocumented = [v for v in vars_in_mcp if v not in self.readme]
+    def test_every_neo4j_env_var_in_launcher_is_documented_in_readme(self):
+        # Find all NEO4J_* names the launcher references (e.g. in its DEFAULTS).
+        vars_in_launcher = set(re.findall(r"NEO4J_[A-Z_]+", self.launcher_raw))
+        undocumented = [v for v in vars_in_launcher if v not in self.readme]
         self.assertFalse(
             undocumented,
-            f".mcp.json references NEO4J_* env vars that the README does "
+            f"graph-mcp.py references NEO4J_* env vars that the README does "
             f"not document: {undocumented!r}",
         )
 
