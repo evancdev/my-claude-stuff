@@ -23,6 +23,7 @@ Black-box only — none of the forbidden files are opened.
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import re
@@ -336,21 +337,34 @@ class McpJsonArgvLeakTests(unittest.TestCase):
         )
 
     def test_neo4j_password_delivered_via_env(self):
-        """Constructive complement: the password should be present in the
-        server's `env` block as a ${NEO4J_PASSWORD...} interpolation."""
-        env = self.server.get("env") or {}
-        interp = re.compile(r"\$\{NEO4J_PASSWORD[^}]*\}")
-        found = False
-        for k, v in env.items():
-            if not isinstance(v, str):
-                continue
-            if interp.search(v):
-                found = True
-                break
-        self.assertTrue(
-            found,
-            f"expected an env entry referencing ${{NEO4J_PASSWORD...}}; "
-            f"got env={env!r}",
+        """Constructive complement: the password reaches the server through
+        its environment, never argv. The graph-mcp.py launcher loads NEO4J_*
+        from ~/.claude/secrets.env and execs uvx with them in env — verify it
+        puts NEO4J_PASSWORD into the env it builds, that a stored secret flows
+        through, and that the value never lands on the uvx argv."""
+        launcher_path = REPO_ROOT / "scripts" / "graph-mcp.py"
+        self.assertTrue(launcher_path.exists(), f"missing {launcher_path}")
+        spec = importlib.util.spec_from_file_location("graph_mcp", launcher_path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+
+        # Even with an empty real env and empty secrets.env, the launcher must
+        # still populate NEO4J_PASSWORD (its built-in default) into the env.
+        env = mod.build_env({}, {})
+        self.assertIn(
+            "NEO4J_PASSWORD",
+            env,
+            "launcher must deliver NEO4J_PASSWORD via the server's environment",
+        )
+        # A value stored in secrets.env must flow through to the server env.
+        env2 = mod.build_env({}, {"NEO4J_PASSWORD": "s3cret-from-dotenv"})
+        self.assertEqual(env2["NEO4J_PASSWORD"], "s3cret-from-dotenv")
+
+        # ...and the password must never be passed on argv (process-table leak).
+        self.assertNotIn(
+            "NEO4J_PASSWORD",
+            " ".join(mod.SERVER_ARGV),
+            f"NEO4J_PASSWORD must not appear in the uvx argv: {mod.SERVER_ARGV!r}",
         )
 
 

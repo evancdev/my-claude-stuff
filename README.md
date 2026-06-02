@@ -51,10 +51,11 @@ A time-aware personal-context graph Claude reads and writes during sessions — 
 
 ### First-time setup
 
-1. Pick a password and put it in your shell rc. The dev default `changeme-graph` is fine on a trusted single-user machine, but **override it** on any host where other processes you don't trust can reach `localhost` (the port is loopback-only, but every process on the box can connect):
+1. Pick a password and store it with the plugin's secrets CLI (lands in `~/.claude/secrets.env`, mode 0600):
    ```bash
-   export NEO4J_PASSWORD='your-password-here'
+   my-claude secret set NEO4J_PASSWORD     # hidden prompt
    ```
+   The dev default `changeme-graph` is fine on a trusted single-user machine, but **set your own** on any host where other processes you don't trust can reach `localhost` (the port is loopback-only, but every process on the box can connect). The container, the SessionStart hook, and the MCP server all read this one value — no shell-rc `export` needed. (An exported `NEO4J_PASSWORD` in the real environment still wins, for power users.)
 2. Start Claude Code in any project. The `SessionStart` hook spawns the container in the background — on the first ever launch the ~500MB Neo4j image is pulled (takes minutes on typical broadband), so the graph will report **"configured but not running"** until the next session. After the image is cached, the container starts in ~30s. Subsequent launches are instant once Docker itself is up.
 3. Run `/graph-seed` once to seed baseline facts (the `Evan` node, current projects, key people, standing meetings).
 
@@ -67,20 +68,20 @@ Three names refer to the same system; useful when grepping:
 
 ### Customizing
 
-The MCP server reads four env vars (all optional, all with sensible defaults):
+Four connection vars (all optional, all with sensible defaults). Each is resolved with precedence **process env > `~/.claude/secrets.env` > default**, so store them with `my-claude secret set <VAR>` (or export them to override):
 
 | Var              | Default                  | Notes |
 |------------------|--------------------------|-------|
 | `NEO4J_URI`      | `bolt://localhost:7687`  | Override to point at an external Neo4j. |
 | `NEO4J_USERNAME` | `neo4j`                  | |
-| `NEO4J_PASSWORD` | `changeme-graph`         | **Set this before the first `compose up`** — Neo4j hashes the password into the data volume on first startup. Changing the env var later has no effect unless you also run `docker compose down -v` (which deletes all graph data). |
+| `NEO4J_PASSWORD` | `changeme-graph`         | **Set this before the first `compose up`** — Neo4j hashes the password into the data volume on first startup. Changing it later has no effect unless you also run `docker compose down -v` (which deletes all graph data). |
 | `NEO4J_DATABASE` | `neo4j`                  | |
 
 ### Daily use
 
 - Claude reads the graph proactively at SessionStart (upcoming events surface automatically) and on demand via the `personal-graph` MCP server.
 - Claude writes to the graph when something biographical, relational, or time-sensitive comes up. Write rule: `MERGE` only, never `CREATE`. See [`conventions/graph-schema.md`](conventions/graph-schema.md).
-- Neo4j Browser at `http://localhost:7474` (user `neo4j`, password = `NEO4J_PASSWORD`) if you want to poke around manually.
+- Neo4j Browser at `http://localhost:7474` (user `neo4j`, password = the `NEO4J_PASSWORD` you stored) if you want to poke around manually.
 
 ### Stopping / cleanup
 

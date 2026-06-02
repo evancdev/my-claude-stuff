@@ -263,14 +263,23 @@ class McpJsonAuditTests(unittest.TestCase):
         self.data = json.loads(self.raw)
         self.server = self.data["mcpServers"]["personal-graph"]
 
-    def test_command_matches_readme_runner(self):
-        """README documents `uvx` as the MCP runner. The `command` field
-        should be `uvx` (or a path ending in uvx). A mismatch means the
-        README and the actual config disagree."""
+    def test_command_points_at_launcher_that_runs_uvx(self):
+        """The MCP server is launched through the graph-mcp.py wrapper so it
+        can source NEO4J_* from ~/.claude/secrets.env — something .mcp.json's
+        ${VAR} interpolation can't read. The wrapper in turn must invoke `uvx`
+        as the README documents. Verify both ends so the indirection can't
+        silently drift from the documented runner."""
         cmd = self.server.get("command", "")
         self.assertTrue(
-            cmd == "uvx" or cmd.endswith("/uvx") or cmd.endswith("uvx"),
-            f"command should be `uvx` per README; got {cmd!r}",
+            cmd.endswith("scripts/graph-mcp.py"),
+            f"command should launch the graph-mcp.py wrapper; got {cmd!r}",
+        )
+        launcher = REPO_ROOT / "scripts" / "graph-mcp.py"
+        self.assertTrue(launcher.exists(), f"missing launcher {launcher}")
+        self.assertIn(
+            "uvx",
+            launcher.read_text(),
+            "graph-mcp.py wrapper should invoke `uvx` per README",
         )
 
     def test_no_high_entropy_literals_outside_interpolation(self):
