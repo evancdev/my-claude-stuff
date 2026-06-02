@@ -106,6 +106,7 @@ def _load_yaml(path: Path):
     """Best-effort load: PyYAML → `docker compose config --format json`."""
     try:
         import yaml  # type: ignore
+
         with open(path) as f:
             return yaml.safe_load(f)
     except Exception:
@@ -115,7 +116,9 @@ def _load_yaml(path: Path):
     try:
         r = subprocess.run(
             ["docker", "compose", "-f", str(path), "config", "--format", "json"],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
         if r.returncode == 0:
             return json.loads(r.stdout)
@@ -230,8 +233,7 @@ class ComposeAuditTests(unittest.TestCase):
         self.assertIn(
             restart,
             ("unless-stopped", "on-failure", "no"),
-            f"restart policy {restart!r} is unexpected (README says "
-            "'unless-stopped')",
+            f"restart policy {restart!r} is unexpected (README says 'unless-stopped')",
         )
 
     def test_no_zero_zero_in_long_form_ports(self):
@@ -314,9 +316,7 @@ class McpJsonAuditTests(unittest.TestCase):
         must not contain a plausible literal password assignment."""
         # Look for `"password": "<literal>"` or `--password=<literal>`
         # where `<literal>` is NOT a ${...} interpolation.
-        bad = re.findall(
-            r'"--password=([^"$][^"]*)"', self.raw
-        ) + re.findall(
+        bad = re.findall(r'"--password=([^"$][^"]*)"', self.raw) + re.findall(
             r'"password"\s*:\s*"([^"$][^"]*)"', self.raw, re.IGNORECASE
         )
         self.assertFalse(
@@ -406,7 +406,8 @@ class SessionStartHookAuditTests(unittest.TestCase):
             elapsed = time.monotonic() - t0
 
             self.assertEqual(
-                r.returncode, 0,
+                r.returncode,
+                0,
                 f"hook must exit 0 on happy path; "
                 f"stderr={r.stderr!r} stdout={r.stdout!r}",
             )
@@ -414,7 +415,8 @@ class SessionStartHookAuditTests(unittest.TestCase):
             obj = self._parse_hook_json(r.stdout)
             ctx = obj["hookSpecificOutput"]["additionalContext"]
             self.assertIn(
-                "graph-schema.md", ctx,
+                "graph-schema.md",
+                ctx,
                 f"additionalContext should reference graph-schema.md; got {ctx!r}",
             )
         finally:
@@ -431,7 +433,8 @@ class SessionStartHookAuditTests(unittest.TestCase):
         r = self._run(env)
         self.assertEqual(r.returncode, 0)
         self.assertNotIn(
-            "\x1b", r.stdout,
+            "\x1b",
+            r.stdout,
             f"stdout contains ANSI escape (0x1b); got {r.stdout!r}",
         )
 
@@ -450,7 +453,8 @@ class SessionStartHookAuditTests(unittest.TestCase):
             r = self._run(env)
             self.assertEqual(r.returncode, 0)
             self.assertNotIn(
-                token, r.stdout,
+                token,
+                r.stdout,
                 "NEO4J_PASSWORD value leaked into stdout — security issue",
             )
         finally:
@@ -503,7 +507,8 @@ class SessionStartHookAuditTests(unittest.TestCase):
             self.assertEqual(len(results), 2)
             for r in results:
                 self.assertEqual(
-                    r.returncode, 0,
+                    r.returncode,
+                    0,
                     f"concurrent hook must exit 0; "
                     f"stderr={r.stderr!r} stdout={r.stdout!r}",
                 )
@@ -565,7 +570,8 @@ class GraphSeedDepthTests(unittest.TestCase):
         m = re.match(r"---\s*\n.*?\n---\s*\n(.*)$", self.text, re.DOTALL)
         body = m.group(1) if m else self.text
         self.assertIn(
-            "Evan", body,
+            "Evan",
+            body,
             "graph-seed.md body should mention the `Evan` singleton",
         )
 

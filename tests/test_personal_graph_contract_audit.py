@@ -36,7 +36,6 @@ import shutil
 import subprocess
 import tempfile
 import textwrap
-import time
 import unittest
 from pathlib import Path
 
@@ -174,9 +173,7 @@ class HookPython3TrapFallbackTests(unittest.TestCase):
         try:
             obj = json.loads(stripped)
         except json.JSONDecodeError as e:
-            self.fail(
-                f"[{label}] stdout is not valid JSON: {e}; stdout={stdout!r}"
-            )
+            self.fail(f"[{label}] stdout is not valid JSON: {e}; stdout={stdout!r}")
         self.assertIsInstance(obj, dict, f"[{label}] top-level must be object")
         hso = obj.get("hookSpecificOutput")
         self.assertIsInstance(
@@ -467,9 +464,7 @@ class McpJsonArgvHardeningTests(unittest.TestCase):
         args = self.server.get("args") or []
         bad = []
         # Match any ${...} whose var name contains a secret-y token.
-        secret_interp = re.compile(
-            r"\$\{([^}]+)\}"
-        )
+        secret_interp = re.compile(r"\$\{([^}]+)\}")
         for a in args:
             if not isinstance(a, str):
                 continue
@@ -477,7 +472,9 @@ class McpJsonArgvHardeningTests(unittest.TestCase):
                 varspec = m.group(1)
                 # Extract just the var name (before `:-` or `:=` default).
                 name = re.split(r"[:\-]", varspec, 1)[0].upper()
-                if any(t in name for t in ("PASS", "TOKEN", "SECRET")) or name.endswith("_KEY"):
+                if any(t in name for t in ("PASS", "TOKEN", "SECRET")) or name.endswith(
+                    "_KEY"
+                ):
                     bad.append((a, name))
         self.assertFalse(
             bad,
@@ -517,10 +514,7 @@ class McpJsonArgvHardeningTests(unittest.TestCase):
                 continue
             up = k.upper()
             sensitive = (
-                "PASS" in up
-                or "TOKEN" in up
-                or "SECRET" in up
-                or up.endswith("_KEY")
+                "PASS" in up or "TOKEN" in up or "SECRET" in up or up.endswith("_KEY")
             )
             if sensitive and not interp_only.match(v):
                 bad.append((k, v))
@@ -599,7 +593,11 @@ class HealthcheckOverrideTests(unittest.TestCase):
         # If the healthcheck is just `wget http://localhost:7474` — that's
         # acceptable (it exercises the HTTP listener). If it shells into
         # cypher-shell, an auth path is expected.
-        if "cypher-shell" in joined and "-u" not in joined and "--username" not in joined:
+        if (
+            "cypher-shell" in joined
+            and "-u" not in joined
+            and "--username" not in joined
+        ):
             # cypher-shell needs a username to actually try auth.
             # An unauthenticated cypher-shell call would fail closed
             # (still useful), but most likely indicates a misconfiguration.

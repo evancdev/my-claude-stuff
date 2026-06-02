@@ -258,8 +258,7 @@ class Neo4jUpDetachmentTests(unittest.TestCase):
             self.assertEqual(
                 r.returncode,
                 0,
-                f"hook must exit 0 even on slow compose up; "
-                f"stderr={r.stderr!r}",
+                f"hook must exit 0 even on slow compose up; stderr={r.stderr!r}",
             )
             # And — per the stdout contract — it must emit exactly one
             # valid JSON object even on this branch.
@@ -347,7 +346,9 @@ class MergeKeyConsistencyTests(unittest.TestCase):
         ):
             blocks.append(m.group(1))
         # Also collect any other fenced ``` ... ``` blocks as fallback
-        for m in re.finditer(r"```(?!cypher)([^\n]*)\n(.+?)```", self.seed_text, re.DOTALL):
+        for m in re.finditer(
+            r"```(?!cypher)([^\n]*)\n(.+?)```", self.seed_text, re.DOTALL
+        ):
             blocks.append(m.group(2))
         return blocks
 
@@ -449,7 +450,7 @@ class MergeKeyConsistencyTests(unittest.TestCase):
                 re.IGNORECASE,
             )
             for m in pat.finditer(prose):
-                snippet = prose[max(0, m.start() - 40):m.end() + 40].strip()
+                snippet = prose[max(0, m.start() - 40) : m.end() + 40].strip()
                 if snippet in seen_snippets:
                     continue
                 seen_snippets.add(snippet)
@@ -459,7 +460,7 @@ class MergeKeyConsistencyTests(unittest.TestCase):
         # also names Event/Decision/Preference.
         sentences = re.split(r"(?<=[.\n])", prose)
         for s in sentences:
-            if not any(l in s for l in labels):
+            if not any(lbl in s for lbl in labels):
                 continue
             lower = s.lower()
             # Require some MERGE-key-discussion verbiage

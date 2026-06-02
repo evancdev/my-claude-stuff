@@ -24,7 +24,6 @@ import os
 import re
 import shutil
 import subprocess
-import sys
 import tempfile
 import textwrap
 import threading
@@ -235,6 +234,7 @@ def _load_yaml(path: Path):
     """Best-effort compose load: PyYAML if available, else `docker compose config --format json`."""
     try:
         import yaml  # type: ignore
+
         try:
             with open(path) as f:
                 return yaml.safe_load(f)
@@ -248,7 +248,9 @@ def _load_yaml(path: Path):
     try:
         r = subprocess.run(
             ["docker", "compose", "-f", str(path), "config", "--format", "json"],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
         if r.returncode == 0:
             return json.loads(r.stdout)
@@ -301,13 +303,14 @@ class ComposeAdversarialTests(unittest.TestCase):
         # `environment` may be dict or list of "KEY=VALUE" strings.
         if isinstance(env, list):
             env = dict(
-                item.split("=", 1) for item in env if isinstance(item, str) and "=" in item
+                item.split("=", 1)
+                for item in env
+                if isinstance(item, str) and "=" in item
             )
         heap_keys = [
-            k for k in env
-            if isinstance(k, str)
-            and "heap" in k.lower()
-            and "max" in k.lower()
+            k
+            for k in env
+            if isinstance(k, str) and "heap" in k.lower() and "max" in k.lower()
         ]
         if not heap_keys:
             self.skipTest("no heap-max env var set in compose")
@@ -493,12 +496,14 @@ class Neo4jUpAdversarialTests(unittest.TestCase):
             }
             r = self._run(env)
             self.assertEqual(
-                r.returncode, 0,
+                r.returncode,
+                0,
                 f"up.sh must exit 0 when container is running; "
                 f"stderr={r.stderr!r} stdout={r.stdout!r}",
             )
             self.assertEqual(
-                r.stdout, "",
+                r.stdout,
+                "",
                 f"stdout must be clean when container running; got {r.stdout!r}",
             )
         finally:
@@ -515,12 +520,14 @@ class Neo4jUpAdversarialTests(unittest.TestCase):
             }
             r = self._run(env)
             self.assertEqual(
-                r.returncode, 0,
+                r.returncode,
+                0,
                 f"up.sh must exit 0 when container is stopped; "
                 f"stderr={r.stderr!r} stdout={r.stdout!r}",
             )
             self.assertEqual(
-                r.stdout, "",
+                r.stdout,
+                "",
                 f"stdout must be clean; got {r.stdout!r}",
             )
         finally:
@@ -555,12 +562,14 @@ class Neo4jUpAdversarialTests(unittest.TestCase):
             self.assertEqual(len(results), 2)
             for r in results:
                 self.assertEqual(
-                    r.returncode, 0,
+                    r.returncode,
+                    0,
                     f"concurrent up.sh must exit 0; "
                     f"stderr={r.stderr!r} stdout={r.stdout!r}",
                 )
                 self.assertEqual(
-                    r.stdout, "",
+                    r.stdout,
+                    "",
                     f"stdout must stay clean under concurrency; got {r.stdout!r}",
                 )
         finally:
@@ -611,7 +620,8 @@ class SessionStartHookAdversarialTests(unittest.TestCase):
         self.assertTrue(ctx, "additionalContext must be non-empty")
         if must_include_schema:
             self.assertIn(
-                "graph-schema.md", ctx,
+                "graph-schema.md",
+                ctx,
                 f"additionalContext should reference graph-schema.md; got {ctx!r}",
             )
         return obj, ctx
@@ -633,7 +643,8 @@ class SessionStartHookAdversarialTests(unittest.TestCase):
             elapsed = time.monotonic() - t0
 
             self.assertEqual(
-                r.returncode, 0,
+                r.returncode,
+                0,
                 f"hook must exit 0; stderr={r.stderr!r} stdout={r.stdout!r}",
             )
             self.assertLess(elapsed, 10.0, "hook exceeded 10s wallclock budget")
@@ -658,7 +669,8 @@ class SessionStartHookAdversarialTests(unittest.TestCase):
             elapsed = time.monotonic() - t0
 
             self.assertEqual(
-                r.returncode, 0,
+                r.returncode,
+                0,
                 f"hook must exit 0 on partial failure; "
                 f"stderr={r.stderr!r} stdout={r.stdout!r}",
             )
@@ -690,12 +702,14 @@ class SessionStartHookAdversarialTests(unittest.TestCase):
             elapsed = time.monotonic() - t0
 
             self.assertLess(
-                elapsed, 10.0,
+                elapsed,
+                10.0,
                 f"hook wallclock {elapsed:.2f}s exceeded 10s budget "
                 "with slow docker — internal timeout not enforced",
             )
             self.assertEqual(
-                r.returncode, 0,
+                r.returncode,
+                0,
                 f"hook must exit 0 even when docker hangs; "
                 f"stderr={r.stderr!r} stdout={r.stdout!r}",
             )
@@ -718,7 +732,8 @@ class SessionStartHookAdversarialTests(unittest.TestCase):
             }
             r = self._run(env, cwd=cwd)
             self.assertEqual(
-                r.returncode, 0,
+                r.returncode,
+                0,
                 f"hook must exit 0 from unrelated cwd; "
                 f"stderr={r.stderr!r} stdout={r.stdout!r}",
             )
@@ -741,7 +756,8 @@ class SessionStartHookAdversarialTests(unittest.TestCase):
             # Notably: no CLAUDE_PLUGIN_ROOT
             r = self._run(env)
             self.assertEqual(
-                r.returncode, 0,
+                r.returncode,
+                0,
                 f"hook must exit 0 with CLAUDE_PLUGIN_ROOT unset; "
                 f"stderr={r.stderr!r} stdout={r.stdout!r}",
             )
@@ -795,8 +811,8 @@ class HookJsonEscapingTests(unittest.TestCase):
                 "#!/bin/sh\n"
                 "# Emit a hostile-looking string to stderr for every call.\n"
                 'printf %s "{\\"evil\\": \\"line1\\nline2\\t\\\\u00e9\\"}" 1>&2\n'
-                'echo " trailing stderr garbage \\\"with quotes\\\"" 1>&2\n'
-                "if [ \"$1\" = info ]; then exit 1; fi\n"
+                'echo " trailing stderr garbage \\"with quotes\\"" 1>&2\n'
+                'if [ "$1" = info ]; then exit 1; fi\n'
                 "exit 0\n"
             )
             _write_shim(d, script)
@@ -813,7 +829,8 @@ class HookJsonEscapingTests(unittest.TestCase):
                 env=env,
             )
             self.assertEqual(
-                r.returncode, 0,
+                r.returncode,
+                0,
                 f"hook must exit 0 with hostile stderr; stderr={r.stderr!r}",
             )
             # stdout must still parse cleanly

@@ -22,7 +22,6 @@ import json
 import os
 import re
 import shutil
-import stat
 import subprocess
 import tempfile
 import textwrap
@@ -336,9 +335,7 @@ class ComposeFileTests(unittest.TestCase):
             self.skipTest("compose unloadable in this env")
         services = data.get("services") or {}
         svc = next(iter(services.values()))
-        self.assertIn(
-            "healthcheck", svc, "service must define a healthcheck block"
-        )
+        self.assertIn("healthcheck", svc, "service must define a healthcheck block")
         hc = svc["healthcheck"]
         self.assertIsInstance(hc, dict)
         # Don't over-specify shape; just require a `test` key (compose spec).
@@ -567,7 +564,9 @@ class SessionStartHookTests(unittest.TestCase):
         if not SESSION_START_SH.exists():
             self.fail(f"missing: {SESSION_START_SH}")
 
-    def _run_hook(self, env: dict, timeout: float = 10.0) -> subprocess.CompletedProcess:
+    def _run_hook(
+        self, env: dict, timeout: float = 10.0
+    ) -> subprocess.CompletedProcess:
         # Always run via `bash` explicitly so we don't depend on exec bit alone.
         return subprocess.run(
             ["bash", str(SESSION_START_SH)],
@@ -656,9 +655,7 @@ class SessionStartHookTests(unittest.TestCase):
                 f"hook must exit 0 when daemon down; "
                 f"stderr={result.stderr!r} stdout={result.stdout!r}",
             )
-            self.assertLess(
-                elapsed, 10.0, "hook took too long with daemon down"
-            )
+            self.assertLess(elapsed, 10.0, "hook took too long with daemon down")
             _, ctx = self._assert_hook_json_shape(result.stdout)
 
             # Spec: assert the context signals dormant state. The spec
@@ -693,7 +690,15 @@ class SessionStartHookTests(unittest.TestCase):
 
 
 class GraphSchemaDocTests(unittest.TestCase):
-    NODE_LABELS = ["Person", "Org", "Project", "Event", "Decision", "Preference", "Topic"]
+    NODE_LABELS = [
+        "Person",
+        "Org",
+        "Project",
+        "Event",
+        "Decision",
+        "Preference",
+        "Topic",
+    ]
 
     def setUp(self):
         if not GRAPH_SCHEMA_MD.exists():
@@ -736,9 +741,7 @@ class GraphSchemaDocTests(unittest.TestCase):
         def close(a_match, b_match, window=200):
             return abs(a_match.start() - b_match.start()) <= window
 
-        close_pairs = [
-            (q, k) for q in quoted for k in kw_matches if close(q, k)
-        ]
+        close_pairs = [(q, k) for q in quoted for k in kw_matches if close(q, k)]
         self.assertTrue(
             close_pairs,
             "quoted 'Evan' must appear near 'singleton' or 'implicit' "

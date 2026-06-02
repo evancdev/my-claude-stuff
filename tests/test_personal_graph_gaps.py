@@ -72,8 +72,12 @@ def _make_argv_logging_running_shim(log_path: str) -> str:
         "#!/bin/sh\n"
         # Log every argument (including $0) NUL-separated, then a record
         # separator newline.
-        'for a in "$0" "$@"; do printf "%s\\0" "$a"; done >> ' + json.dumps(log_path) + "\n"
-        'printf "\\n" >> ' + json.dumps(log_path) + "\n"
+        'for a in "$0" "$@"; do printf "%s\\0" "$a"; done >> '
+        + json.dumps(log_path)
+        + "\n"
+        'printf "\\n" >> '
+        + json.dumps(log_path)
+        + "\n"
         + textwrap.dedent(
             """\
             cmd="$1"; shift
@@ -144,6 +148,7 @@ def _make_stopped_shim() -> str:
 def _load_compose():
     try:
         import yaml  # type: ignore
+
         with open(COMPOSE_FILE) as f:
             return yaml.safe_load(f)
     except Exception:
@@ -152,8 +157,18 @@ def _load_compose():
         return None
     try:
         r = subprocess.run(
-            ["docker", "compose", "-f", str(COMPOSE_FILE), "config", "--format", "json"],
-            capture_output=True, text=True, timeout=30,
+            [
+                "docker",
+                "compose",
+                "-f",
+                str(COMPOSE_FILE),
+                "config",
+                "--format",
+                "json",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
         if r.returncode == 0:
             return json.loads(r.stdout)
@@ -208,7 +223,9 @@ class ComposeGapTests(unittest.TestCase):
         env = svc.get("environment") or {}
         if isinstance(env, list):
             env = dict(
-                item.split("=", 1) for item in env if isinstance(item, str) and "=" in item
+                item.split("=", 1)
+                for item in env
+                if isinstance(item, str) and "=" in item
             )
         has_plugins_env = any(
             isinstance(k, str) and "PLUGINS" in k.upper() for k in env.keys()
@@ -383,7 +400,8 @@ class HookPasswordArgvLeakTests(unittest.TestCase):
             }
             r = self._run(env)
             self.assertEqual(
-                r.returncode, 0,
+                r.returncode,
+                0,
                 f"hook must exit 0; stderr={r.stderr!r} stdout={r.stdout!r}",
             )
 
@@ -424,7 +442,8 @@ class HookPasswordArgvLeakTests(unittest.TestCase):
             r = self._run(env)
             self.assertEqual(r.returncode, 0)
             self.assertNotIn(
-                sentinel, r.stderr,
+                sentinel,
+                r.stderr,
                 "NEO4J_PASSWORD value leaked to stderr — risks transcripts/logs",
             )
         finally:
@@ -478,7 +497,8 @@ class HookBranchAndSafetyTests(unittest.TestCase):
             elapsed = time.monotonic() - t0
 
             self.assertEqual(
-                r.returncode, 0,
+                r.returncode,
+                0,
                 f"hook must exit 0 with stopped container; "
                 f"stderr={r.stderr!r} stdout={r.stdout!r}",
             )
@@ -535,10 +555,13 @@ class HookBranchAndSafetyTests(unittest.TestCase):
         )
         self.assertEqual(r.returncode, 0)
         self.assertNotIn(
-            b"\x00", r.stdout, "stdout contains a NUL byte",
+            b"\x00",
+            r.stdout,
+            "stdout contains a NUL byte",
         )
         self.assertNotIn(
-            b"\r", r.stdout,
+            b"\r",
+            r.stdout,
             "stdout contains a carriage return — likely CRLF leak",
         )
 
@@ -599,24 +622,54 @@ class GraphSchemaEdgeTypesTests(unittest.TestCase):
         # Filter out obvious non-types: node labels (we know those are
         # CamelCase, not all caps) and well-known noise.
         noise = {
-            "MERGE", "CREATE", "MATCH", "RETURN", "DELETE", "SET", "WITH",
-            "UNWIND", "WHERE", "ORDER", "BY", "LIMIT", "EVAN", "TODO",
-            "FIXME", "NOTE", "WARNING", "INFO", "BUT", "AND", "ALL",
-            "URL", "API", "JSON", "YAML", "MCP", "ISO",
-            "NEO4J_PASSWORD", "NEO4J_AUTH", "NEO4J_PLUGINS", "NEO4J_URL",
+            "MERGE",
+            "CREATE",
+            "MATCH",
+            "RETURN",
+            "DELETE",
+            "SET",
+            "WITH",
+            "UNWIND",
+            "WHERE",
+            "ORDER",
+            "BY",
+            "LIMIT",
+            "EVAN",
+            "TODO",
+            "FIXME",
+            "NOTE",
+            "WARNING",
+            "INFO",
+            "BUT",
+            "AND",
+            "ALL",
+            "URL",
+            "API",
+            "JSON",
+            "YAML",
+            "MCP",
+            "ISO",
+            "NEO4J_PASSWORD",
+            "NEO4J_AUTH",
+            "NEO4J_PLUGINS",
+            "NEO4J_URL",
             "CLAUDE_PLUGIN_ROOT",
         }
-        edge_like = {c for c in candidates if c not in noise and "_" in c or len(c) >= 4 and c not in noise}
+        edge_like = {
+            c
+            for c in candidates
+            if c not in noise and "_" in c or len(c) >= 4 and c not in noise
+        }
         # Stronger filter: only tokens that *contain* an underscore are most
         # likely Neo4j rel types (KNOWS, WORKS_AT, ATTENDED, etc.). We also
         # accept single-word ALL_CAPS tokens but require >=5 chars to dodge
         # noise.
         edge_like = {
-            c for c in candidates
-            if c not in noise and ("_" in c or len(c) >= 5)
+            c for c in candidates if c not in noise and ("_" in c or len(c) >= 5)
         }
         self.assertGreaterEqual(
-            len(edge_like), 3,
+            len(edge_like),
+            3,
             f"graph-schema.md should declare at least 3 relationship/edge "
             f"types; saw candidate set: {sorted(edge_like)!r}",
         )

@@ -202,9 +202,7 @@ class EdgeTypeCrossFileConsistencyTests(unittest.TestCase):
         for blk in self._seed_cypher_blocks():
             for m in edge_re.finditer(blk):
                 snippet = m.group(0)
-                found.append(
-                    (m.group("type"), m.group("src"), m.group("dst"), snippet)
-                )
+                found.append((m.group("type"), m.group("src"), m.group("dst"), snippet))
         return found
 
     def _seed_edges_from_prose(self) -> list[tuple[str, str]]:
@@ -292,8 +290,7 @@ class EdgeTypeCrossFileConsistencyTests(unittest.TestCase):
         self.assertFalse(
             violations,
             "graph-seed.md instructs Claude to write Cypher edges that "
-            "are illegal per the schema's edge table:\n  "
-            + "\n  ".join(violations),
+            "are illegal per the schema's edge table:\n  " + "\n  ".join(violations),
         )
 
     def test_seed_prose_edge_hints_are_legal_per_schema(self):
@@ -630,10 +627,7 @@ class McpJsonPackageCoordinatesTests(unittest.TestCase):
         token that looks like a package coordinate (PyPI name, git URL,
         or `--from <pkg>` form)."""
         args = self.server.get("args") or []
-        non_flag = [
-            a for a in args
-            if isinstance(a, str) and not a.startswith("-")
-        ]
+        non_flag = [a for a in args if isinstance(a, str) and not a.startswith("-")]
         flag_pairs = []
         for i, a in enumerate(args):
             if isinstance(a, str) and a in ("--from", "--with"):
@@ -648,7 +642,8 @@ class McpJsonPackageCoordinatesTests(unittest.TestCase):
         # At least one of those candidates should look like a real
         # package name or git URL (not a single short noise token).
         plausible = [
-            c for c in candidates
+            c
+            for c in candidates
             if isinstance(c, str)
             and (
                 re.match(r"^[a-zA-Z][a-zA-Z0-9_\-]{2,}$", c)
@@ -658,8 +653,7 @@ class McpJsonPackageCoordinatesTests(unittest.TestCase):
         ]
         self.assertTrue(
             plausible,
-            f"none of the uvx args look like a package name or URL: "
-            f"{candidates!r}",
+            f"none of the uvx args look like a package name or URL: {candidates!r}",
         )
 
 
@@ -738,8 +732,7 @@ class HookEnvRobustnessTests(unittest.TestCase):
             self.assertNotIn(
                 "evil",
                 ctx,
-                f"NEO4J_PASSWORD value leaked into additionalContext: "
-                f"ctx={ctx!r}",
+                f"NEO4J_PASSWORD value leaked into additionalContext: ctx={ctx!r}",
             )
         finally:
             shutil.rmtree(d, ignore_errors=True)
@@ -795,8 +788,7 @@ class HookEnvRobustnessTests(unittest.TestCase):
             self.assertNotIn(
                 sentinel,
                 r.stdout,
-                f"NEO4J_PASSWORD sentinel leaked into hook stdout: "
-                f"{r.stdout!r}",
+                f"NEO4J_PASSWORD sentinel leaked into hook stdout: {r.stdout!r}",
             )
         finally:
             shutil.rmtree(d, ignore_errors=True)
@@ -826,8 +818,7 @@ class ComposeIntegrationTests(unittest.TestCase):
             self.assertEqual(
                 r.returncode,
                 0,
-                f"`docker compose config -q` run #{i} failed: "
-                f"stderr={r.stderr!r}",
+                f"`docker compose config -q` run #{i} failed: stderr={r.stderr!r}",
             )
 
     @unittest.skipUnless(docker_available(), "docker CLI not on PATH")
@@ -835,7 +826,15 @@ class ComposeIntegrationTests(unittest.TestCase):
         """Rendered config (not raw yaml) confirms the image is
         neo4j:5.x. Resilient to ${...} indirection in the source."""
         r = subprocess.run(
-            ["docker", "compose", "-f", str(COMPOSE_FILE), "config", "--format", "json"],
+            [
+                "docker",
+                "compose",
+                "-f",
+                str(COMPOSE_FILE),
+                "config",
+                "--format",
+                "json",
+            ],
             capture_output=True,
             text=True,
             timeout=30,
@@ -847,7 +846,9 @@ class ComposeIntegrationTests(unittest.TestCase):
         except json.JSONDecodeError as e:
             self.fail(f"compose config did not emit valid JSON: {e}")
         services = data.get("services") or {}
-        self.assertEqual(len(services), 1, f"expected 1 service; got {list(services)!r}")
+        self.assertEqual(
+            len(services), 1, f"expected 1 service; got {list(services)!r}"
+        )
         svc = next(iter(services.values()))
         image = svc.get("image", "")
         self.assertRegex(
