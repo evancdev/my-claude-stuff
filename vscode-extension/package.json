@@ -1,0 +1,69 @@
+{
+  "name": "my-claude-stuff-annotate",
+  "displayName": "Claude Annotate",
+  "description": "Highlight-and-comment annotations on any file. CodeLens-driven, webview thread UI, sidecar-persisted. Companion to the my-claude-stuff plugin's /annotate slash command.",
+  "version": "0.2.1",
+  "publisher": "evancdev",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "claudeAnnotate.addAtSelection",
+        "title": "Claude Annotate: Add Comment at Selection"
+      },
+      {
+        "command": "claudeAnnotate.showThread",
+        "title": "Claude Annotate: Show Thread"
+      },
+      {
+        "command": "claudeAnnotate.replyById",
+        "title": "Claude Annotate: Reply"
+      },
+      {
+        "command": "claudeAnnotate.toggleResolvedById",
+        "title": "Claude Annotate: Toggle Resolved"
+      },
+      {
+        "command": "claudeAnnotate.deleteById",
+        "title": "Claude Annotate: Delete"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "claudeAnnotate.addAtSelection",
+        "key": "ctrl+alt+a",
+        "mac": "ctrl+cmd+a",
+        "when": "editorTextFocus"
+      }
+    ],
+    "configurationDefaults": {
+      "files.exclude": {
+        "**/*.annotations.json": true
+      },
+      "search.exclude": {
+        "**/*.annotations.json": true
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.41",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.3.0",
+    "vitest": "^4.1.7"
+  }
+}
