@@ -42,6 +42,25 @@ to read as raw diff.
 numbers, so it tells you which files and how many hunks and nothing more. Get the
 line you want to anchor a note to out of the file itself.
 
+Each item in the batch needs `summary`, `filePath`, and exactly one anchor. The
+field names are camelCase, and `path` or `line` will fail the whole batch with
+`Comment 1 requires a non-empty filePath`.
+
+```bash
+hunk session comment apply --repo . --stdin <<'JSON'
+{"comments":[
+  {"filePath":"src/foo.ts","newLine":30,"summary":"..."},
+  {"filePath":"src/bar.ts","oldLine":12,"summary":"..."},
+  {"replyTo":"user:123","summary":"..."}
+]}
+JSON
+```
+
+Anchor with `newLine` for an added or unchanged line and `oldLine` for a removed
+one. `hunkNumber` anchors to a whole hunk when no single line is right. A reply
+carries `replyTo` alone and inherits its parent's anchor. hunk validates the
+batch as a whole, so one malformed item means none of them land.
+
 Comment on intent, risk, and anything you decided that the diff does not show:
 a tradeoff you picked, a case you knowingly left unhandled, an assumption you made.
 Do not narrate what each hunk does. The user can read the hunk.
