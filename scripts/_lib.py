@@ -1,8 +1,8 @@
 """Shared helpers for plugin scripts and hooks.
 
 Internal — leading underscore signals not a public CLI. Imported by
-sibling scripts directly; hooks insert the parent /scripts/ dir into
-sys.path first (see hooks/viz-comments.py for the pattern).
+sibling scripts directly; a hook must insert the parent /scripts/ dir
+into sys.path before importing it.
 """
 
 from __future__ import annotations

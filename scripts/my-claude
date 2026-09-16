@@ -26,9 +26,6 @@ ROUTES: dict[tuple[str, str], tuple[str, list[str], str]] = {
     ("secret", "set"): ("set-secret.py", [], "<KEY>"),
     ("secret", "list"): ("set-secret.py", ["--list"], ""),
     ("secret", "clear"): ("set-secret.py", ["--clear"], "<KEY>"),
-    ("viz", "set"): ("viz-set-current.py", [], "<figma-url-or-file-key>"),
-    ("viz", "clear"): ("viz-set-current.py", ["--clear"], ""),
-    ("viz", "reply"): ("viz-reply.py", [], "<comment-id> <message>..."),
     ("statusline", "install"): ("install-statusline.py", [], ""),
 }
 
@@ -41,15 +38,6 @@ HELP_GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
             ("set <KEY>", "prompt for a value (hidden) and store it"),
             ("list", "list stored keys (values masked)"),
             ("clear <KEY>", "remove a key"),
-        ],
-    ),
-    (
-        "viz",
-        "Track the current Figma file for the comments hook",
-        [
-            ("set <url|key>", "start tracking a Figma URL or file key"),
-            ("clear", "stop tracking"),
-            ("reply <id> <msg>", "post a reply in a comment thread"),
         ],
     ),
     (
@@ -103,7 +91,7 @@ def main(argv: list[str]) -> int:
 
     script, lead, arg_usage = route
     user_args = argv[2:]
-    # Honor an explicit end-of-options marker: `my-claude viz set -- -x` should
+    # Honor an explicit end-of-options marker: `my-claude secret set -- -x` should
     # treat -x as the value, not count `--` toward arity.
     if user_args and user_args[0] == "--":
         user_args = user_args[1:]
