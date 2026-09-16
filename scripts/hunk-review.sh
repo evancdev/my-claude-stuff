@@ -11,17 +11,12 @@
 #   hunk-review.sh                 # working tree, including untracked files
 #   hunk-review.sh --staged        # staged changes only
 #   hunk-review.sh main...HEAD     # a ref range
-#   Every argument is passed through to `hunk diff`.
-#
-# Environment:
-#   HUNK_REVIEW_FOCUS   1 to move the cursor into the new tab (default: 0)
+#   hunk-review.sh --close         # close the review tab for this repo
+#   Every other argument is passed through to `hunk diff`.
 #
 # Prints the session id on success. Exits non-zero with a reason the agent can
 # repeat to the user, which usually means "open hunk yourself".
 set -euo pipefail
-
-focus="false"
-[ "${HUNK_REVIEW_FOCUS:-0}" = "1" ] && focus="true"
 
 command -v hunk >/dev/null 2>&1 ||
   { echo "error: hunk is not installed. brew install hunk" >&2; exit 1; }
@@ -29,6 +24,35 @@ command -v hunk >/dev/null 2>&1 ||
 root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 [ -n "$root" ] ||
   { echo "error: not inside a git repository, so there is nothing to review." >&2; exit 1; }
+
+title="review: $(basename "$root")"
+
+# Surfaces in the current pane whose tab carries our title. cmux has no way to
+# ask which surface owns a hunk session, so the title is the only handle there
+# is. `|| true` because pipefail would otherwise abort on an empty listing.
+review_surfaces() {
+  cmux list-pane-surfaces 2>/dev/null |
+    awk -v t="$title" 'index($0, t) { for (i = 1; i <= NF; i++) if ($i ~ /^surface:[0-9]+$/) { print $i; break } }' || true
+}
+
+# Closing the tab kills the session, and every comment on it goes with it. That
+# is the point once the review is settled, and the reason this is a verb the
+# caller asks for rather than anything automatic.
+if [ "${1:-}" = "--close" ]; then
+  command -v cmux >/dev/null 2>&1 ||
+    { echo "error: cmux is not available, so ask the user to close the review tab." >&2; exit 1; }
+  found=""
+  for s in $(review_surfaces); do
+    cmux close-surface --surface "$s" >/dev/null 2>&1 || true
+    found="${found}${s} "
+  done
+  if [ -n "$found" ]; then
+    echo "closed ${found% }"
+  else
+    echo "no review tab open for ${root}"
+  fi
+  exit 0
+fi
 
 # The scope arguments reach a live shell on the spawn path, so they are limited
 # to the characters a flag, ref, or path actually needs. Anything else would
@@ -80,15 +104,15 @@ command -v cmux >/dev/null 2>&1 ||
 # prompt behind. Without this they accumulate one per failed launch. Two repos
 # sharing a basename would collide, and the cost of that is a closed tab, not
 # lost work. `|| true` because pipefail would otherwise abort the script here.
-title="review: $(basename "$root")"
-cmux list-pane-surfaces 2>/dev/null |
-  awk -v t="$title" 'index($0, t) { for (i = 1; i <= NF; i++) if ($i ~ /^surface:[0-9]+$/) { print $i; break } }' |
-  while read -r dead; do
-    cmux close-surface --surface "$dead" >/dev/null 2>&1 || true
-  done || true
+for dead in $(review_surfaces); do
+  cmux close-surface --surface "$dead" >/dev/null 2>&1 || true
+done
 
 # `new-surface` cannot carry a command, so the shell in the new tab is fed one.
-surface_out="$(cmux new-surface --type terminal --working-directory "$root" --focus "$focus" 2>&1)" ||
+# --focus false is not configurable on purpose. The review is for the user to
+# come to when they are ready, and pulling their cursor into a new tab
+# interrupts whatever they were doing to read it.
+surface_out="$(cmux new-surface --type terminal --working-directory "$root" --focus false 2>&1)" ||
   { echo "error: cmux new-surface failed: ${surface_out}" >&2; exit 1; }
 surface="$(printf '%s\n' "$surface_out" | awk '/^OK/ {print $2; exit}')"
 [ -n "$surface" ] ||

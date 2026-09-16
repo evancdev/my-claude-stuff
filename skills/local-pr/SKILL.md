@@ -107,6 +107,22 @@ hunk session comment add --repo . --reply-to <note-id> --summary "..."
 
 Then refresh the tab with the script again so they see the new state.
 
+## 5. Close it out
+
+When the review is settled, close the tab:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/hunk-review.sh" --close
+```
+
+Settled means the change it was showing is committed, or the user said they are
+done with it. Their word ends a review; your own sense that you have addressed
+everything does not.
+
+Closing the tab kills the session and every comment thread on it goes too, so
+never close one to tidy up and never close one with a user comment still
+unanswered. Read them back first.
+
 ## Reference
 
 `hunk skill path hunk-review` prints the path to hunk's own skill. It documents
