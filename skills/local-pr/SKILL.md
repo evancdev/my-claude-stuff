@@ -28,6 +28,10 @@ is one coherent thing.
 The script reuses an open tab for this repo and opens one otherwise. It prints
 the session id. If it exits non-zero, repeat its message to the user and stop.
 
+One review tab per repo, so the user's tab bar does not fill up with them. Never
+open a second by hand and never leave a stale one behind. To change what is under
+review, run the script again with the new scope and it reloads the tab in place.
+
 ## 2. Leave notes
 
 ```bash

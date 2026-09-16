@@ -75,6 +75,18 @@ fi
 command -v cmux >/dev/null 2>&1 ||
   { echo "error: no hunk session for ${root} and cmux is not available to open one. Ask the user to run 'hunk diff' in a terminal." >&2; exit 1; }
 
+# Reaching here means no live session claims this repo, so any tab still carrying
+# our title is a corpse: a previous launch whose hunk died and left the shell
+# prompt behind. Without this they accumulate one per failed launch. Two repos
+# sharing a basename would collide, and the cost of that is a closed tab, not
+# lost work. `|| true` because pipefail would otherwise abort the script here.
+title="review: $(basename "$root")"
+cmux list-pane-surfaces 2>/dev/null |
+  awk -v t="$title" 'index($0, t) { for (i = 1; i <= NF; i++) if ($i ~ /^surface:[0-9]+$/) { print $i; break } }' |
+  while read -r dead; do
+    cmux close-surface --surface "$dead" >/dev/null 2>&1 || true
+  done || true
+
 # `new-surface` cannot carry a command, so the shell in the new tab is fed one.
 surface_out="$(cmux new-surface --type terminal --working-directory "$root" --focus "$focus" 2>&1)" ||
   { echo "error: cmux new-surface failed: ${surface_out}" >&2; exit 1; }
@@ -82,7 +94,7 @@ surface="$(printf '%s\n' "$surface_out" | awk '/^OK/ {print $2; exit}')"
 [ -n "$surface" ] ||
   { echo "error: could not read a surface id out of: ${surface_out}" >&2; exit 1; }
 
-cmux rename-tab --surface "$surface" "review: $(basename "$root")" >/dev/null 2>&1 || true
+cmux rename-tab --surface "$surface" "$title" >/dev/null 2>&1 || true
 cmux send --surface "$surface" "hunk diff $* \n" >/dev/null
 
 # The shell has to start, hunk has to boot, and the daemon has to register it.
@@ -95,5 +107,7 @@ for _ in $(seq 1 30); do
   sleep 0.5
 done
 
-echo "error: hunk was launched in ${surface} but never registered with the daemon. Check that tab." >&2
+# Left open rather than closed, because whatever hunk printed in there is the
+# only record of why it failed. The next run reclaims it.
+echo "error: hunk was launched in ${surface} but never registered with the daemon. Read that tab for the reason; the next run will close it." >&2
 exit 1
