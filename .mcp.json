@@ -3,10 +3,6 @@
     "figma": {
       "type": "http",
       "url": "https://mcp.figma.com/mcp"
-    },
-    "personal-graph": {
-      "command": "${CLAUDE_PLUGIN_ROOT}/scripts/graph-mcp.py",
-      "args": []
     }
   }
 }
