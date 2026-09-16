@@ -1,6 +1,8 @@
 ---
 name: unslop
-description: Use when writing or revising any prose: every reply to the user, commit messages, PR bodies, READMEs, SKILL.md files, code comments. Two passes: cut the sentences that carry no information, then fix the word choices that mark text as AI-generated. Applies to every response, not just long ones.
+description: Two passes over anything written. Cut the sentences that carry no information, then fix the word choices that mark text as AI-generated.
+keep-coding-instructions: true
+force-for-plugin: true
 ---
 
 # Unslop
