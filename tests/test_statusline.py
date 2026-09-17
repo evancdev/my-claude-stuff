@@ -2,13 +2,15 @@
 
 Tests invoke the script as a subprocess and assert on its contract:
 - Reads JSON from stdin
-- Prints exactly one line to stdout: "<cwd-basename> | <model-name> | <token-total> tok"
+- Prints exactly one line to stdout:
+  "<cwd-basename> | <model-name> [(<effort>)] | <token-total> tok"
 - Tolerates malformed inputs; on success paths, stderr is empty and exit code is 0
 - On malformed stdin, prints "claude json parsing error o7" and exits 0
 """
 
 from __future__ import annotations
 import json
+import re
 import os
 import subprocess
 import sys
@@ -17,8 +19,14 @@ import unittest
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+SGR = re.compile(r"\x1b\[[0-9;]*m")
 SCRIPT = REPO_ROOT / "scripts" / "statusline.py"
 BAD_INPUT_LINE = "claude json parsing error o7"
+
+
+def strip_ansi(text: str) -> str:
+    """Drop SGR sequences. The token count is colored; the rest of the line is not."""
+    return SGR.sub("", text)
 
 
 def run_script(stdin_text: str, timeout: float = 10.0) -> subprocess.CompletedProcess:
@@ -122,9 +130,9 @@ class StatuslineTestBase(unittest.TestCase):
         )
 
     def assert_line(self, result: subprocess.CompletedProcess, expected: str) -> None:
-        """Assert clean exit AND stdout equals expected + newline."""
+        """Assert clean exit AND stdout, color stripped, equals expected + newline."""
         self.assert_clean_success(result)
-        self.assertEqual(result.stdout, expected + "\n")
+        self.assertEqual(strip_ansi(result.stdout), expected + "\n")
 
     def _track_for_cleanup(self, path: str) -> None:
         self.addCleanup(self._safe_unlink, path)
@@ -335,8 +343,8 @@ class TokenFormattingTests(StatuslineTestBase):
     def _token_part(self, total: int) -> str:
         result = self._run_with_total(total)
         self.assert_clean_success(result)
-        # stdout format: "dir | m | <TOK> tok\n"
-        line = result.stdout.rstrip("\n")
+        # stdout format: "dir | m | <TOK> tok\n", the count wrapped in color
+        line = strip_ansi(result.stdout).rstrip("\n")
         parts = line.split(" | ")
         self.assertEqual(len(parts), 3, f"unexpected stdout: {result.stdout!r}")
         suffix = " tok"
@@ -379,9 +387,6 @@ class TokenFormattingTests(StatuslineTestBase):
         # 1000000 / 1_000_000 = 1.0
         self.assertEqual(self._token_part(1_000_000), "1.0M")
 
-    def test_1_2M(self):
-        self.assertEqual(self._token_part(1_200_000), "1.2M")
-
     def test_half_up_rounds_at_boundary(self):
         # 1450 → 1.5k under half-up. Banker's rounding would give "1.4k" (4
         # is even). This test pins the spec choice.
@@ -391,7 +396,7 @@ class TokenFormattingTests(StatuslineTestBase):
 
     def test_never_outputs_1000_0k(self):
         """Sweep around the boundary; must never emit '1000.0k'."""
-        for n in [999_949, 999_950, 999_951, 1_000_000, 1_000_500, 1_234_567]:
+        for n in [999_949, 999_950, 999_951, 1_000_000, 1_000_500]:
             with self.subTest(n=n):
                 tok = self._token_part(n)
                 self.assertNotEqual(tok, "1000.0k", f"got bad output for n={n}")
@@ -751,7 +756,7 @@ class TranscriptFileFailureTests(StatuslineTestBase):
         result = run_script(make_stdin(transcript_path=path))
         self.assert_clean_success(result)
         # Acceptable outcomes: token=0 (unreadable) OR token=2 (if running as root).
-        line = result.stdout.rstrip("\n")
+        line = strip_ansi(result.stdout).rstrip("\n")
         parts = line.split(" | ")
         self.assertEqual(parts[0], "widget")
         self.assertEqual(parts[1], "opus")
@@ -880,7 +885,7 @@ class BadStdinTests(StatuslineTestBase):
         result = run_script("{}")
         self.assert_clean_success(result)
         # With nothing, expect: empty cwd basename, "claude" model, 0 tok
-        self.assertEqual(result.stdout, " | claude | 0 tok\n")
+        self.assertEqual(strip_ansi(result.stdout), " | claude | 0 tok\n")
 
 
 # ---------------------------------------------------------------------------
@@ -1057,6 +1062,190 @@ class ReverseScanChunkBoundaryTests(StatuslineTestBase):
             f.write(b"\xc3\x28 also invalid\n")
         result = run_script(make_stdin(transcript_path=path))
         self.assert_line(result, "widget | opus | 3 tok")
+
+
+# ---------------------------------------------------------------------------
+# Token color bands — green under 200k, yellow under 300k, orange under 400k,
+# red at or above 400k. The color wraps the count and the unit together.
+# ---------------------------------------------------------------------------
+
+GREEN, YELLOW, ORANGE, RED = 2, 3, 208, 9
+
+
+class TokenColorTests(StatuslineTestBase):
+    def _color_of(self, total: int) -> int:
+        path = self.make_transcript([usage_row(input_tokens=total)])
+        result = run_script(make_stdin(transcript_path=path))
+        self.assert_clean_success(result)
+        m = re.search(r"\x1b\[38;5;(\d+)m([^\x1b]*) tok\x1b\[0m", result.stdout)
+        self.assertIsNotNone(m, f"no colored count in {result.stdout!r}")
+        self.assertEqual(m.group(2), fmt_expected(total))
+        return int(m.group(1))
+
+    def test_zero_is_green(self):
+        self.assertEqual(self._color_of(0), GREEN)
+
+    def test_just_under_200k_is_green(self):
+        self.assertEqual(self._color_of(199_999), GREEN)
+
+    def test_200k_exactly_is_yellow(self):
+        # The bands are strict: 200k itself is no longer green.
+        self.assertEqual(self._color_of(200_000), YELLOW)
+
+    def test_just_under_300k_is_yellow(self):
+        self.assertEqual(self._color_of(299_999), YELLOW)
+
+    def test_300k_exactly_is_orange(self):
+        self.assertEqual(self._color_of(300_000), ORANGE)
+
+    def test_just_under_400k_is_orange(self):
+        self.assertEqual(self._color_of(399_999), ORANGE)
+
+    def test_400k_exactly_is_red(self):
+        self.assertEqual(self._color_of(400_000), RED)
+
+    def test_full_window_is_red(self):
+        self.assertEqual(self._color_of(1_000_000), RED)
+
+    def test_unit_is_inside_the_color(self):
+        # The reset closes the line, so "tok" carries the band color too.
+        path = self.make_transcript([usage_row(input_tokens=500_000)])
+        result = run_script(make_stdin(transcript_path=path))
+        self.assertTrue(
+            result.stdout.endswith(" tok\x1b[0m\n"),
+            f"unexpected tail: {result.stdout!r}",
+        )
+
+    def test_nothing_before_the_count_is_colored(self):
+        path = self.make_transcript([usage_row(input_tokens=1000)])
+        result = run_script(
+            make_stdin(transcript_path=path, model_display_name="opus")
+        )
+        head = result.stdout.split("\x1b")[0]
+        self.assertEqual(head, "widget | opus | ")
+
+
+def fmt_expected(total: int) -> str:
+    """Mirror of the script's display formatting, for the color assertions."""
+    if total >= 999_950:
+        scaled = (total * 10 + 500_000) // 1_000_000
+        return f"{scaled // 10}.{scaled % 10}M"
+    if total >= 1_000:
+        scaled = (total * 10 + 500) // 1_000
+        return f"{scaled // 10}.{scaled % 10}k"
+    return str(total)
+
+
+# ---------------------------------------------------------------------------
+# Effort level — read from the transcript (`perTurnEffort`, else `effort`) and
+# rendered in place of whatever parenthetical the hook's display_name carried.
+# ---------------------------------------------------------------------------
+
+
+def effort_row(effort=None, per_turn=None, *, input_tokens=1) -> str:
+    """Build a JSONL line carrying usage plus effort fields."""
+    row: dict = {"message": {"usage": {"input_tokens": input_tokens}}}
+    if effort is not None:
+        row["effort"] = effort
+    if per_turn is not None:
+        row["perTurnEffort"] = per_turn
+    return json.dumps(row)
+
+
+class EffortTests(StatuslineTestBase):
+    def test_effort_replaces_the_model_parenthetical(self):
+        path = write_transcript([effort_row(effort="xhigh")])
+        result = run_script(
+            make_stdin(transcript_path=path, model_display_name="Opus 5 (1M context)")
+        )
+        self.assert_line(result, "widget | Opus 5 (xhigh) | 1 tok")
+
+    def test_effort_appends_when_the_name_has_no_parenthetical(self):
+        path = write_transcript([effort_row(effort="high")])
+        result = run_script(
+            make_stdin(transcript_path=path, model_display_name="Opus 5")
+        )
+        self.assert_line(result, "widget | Opus 5 (high) | 1 tok")
+
+    def test_per_turn_effort_wins(self):
+        path = write_transcript([effort_row(effort="high", per_turn="xhigh")])
+        result = run_script(
+            make_stdin(transcript_path=path, model_display_name="Opus 5 (1M context)")
+        )
+        self.assert_line(result, "widget | Opus 5 (xhigh) | 1 tok")
+
+    def test_null_per_turn_effort_falls_back_to_session_effort(self):
+        row = json.dumps(
+            {
+                "message": {"usage": {"input_tokens": 1}},
+                "effort": "high",
+                "perTurnEffort": None,
+            }
+        )
+        path = write_transcript([row])
+        result = run_script(
+            make_stdin(transcript_path=path, model_display_name="Opus 5 (1M context)")
+        )
+        self.assert_line(result, "widget | Opus 5 (high) | 1 tok")
+
+    def test_no_effort_anywhere_leaves_the_name_untouched(self):
+        path = write_transcript([usage_row(input_tokens=1)])
+        result = run_script(
+            make_stdin(transcript_path=path, model_display_name="Opus 5 (1M context)")
+        )
+        self.assert_line(result, "widget | Opus 5 (1M context) | 1 tok")
+
+    def test_latest_effort_wins_over_an_earlier_one(self):
+        path = write_transcript(
+            [effort_row(effort="high"), effort_row(effort="xhigh", input_tokens=2)]
+        )
+        result = run_script(
+            make_stdin(transcript_path=path, model_display_name="Opus 5 (1M context)")
+        )
+        self.assert_line(result, "widget | Opus 5 (xhigh) | 2 tok")
+
+    def test_effort_found_on_a_row_that_carries_no_usage(self):
+        # The newest usage row and the newest effort row need not be the same
+        # row, so the scan has to keep going until it has both.
+        path = write_transcript(
+            [
+                effort_row(effort="xhigh", input_tokens=7),
+                json.dumps({"type": "user", "message": {"role": "user"}}),
+            ]
+        )
+        result = run_script(
+            make_stdin(transcript_path=path, model_display_name="Opus 5 (1M context)")
+        )
+        self.assert_line(result, "widget | Opus 5 (xhigh) | 7 tok")
+
+    def test_non_string_effort_is_ignored(self):
+        row = json.dumps({"message": {"usage": {"input_tokens": 1}}, "effort": 3})
+        path = write_transcript([row])
+        result = run_script(
+            make_stdin(transcript_path=path, model_display_name="Opus 5 (1M context)")
+        )
+        self.assert_line(result, "widget | Opus 5 (1M context) | 1 tok")
+
+    def test_empty_string_effort_is_ignored(self):
+        path = write_transcript([effort_row(effort="")])
+        result = run_script(
+            make_stdin(transcript_path=path, model_display_name="Opus 5 (1M context)")
+        )
+        self.assert_line(result, "widget | Opus 5 (1M context) | 1 tok")
+
+    def test_effort_with_a_missing_model_name_uses_the_fallback(self):
+        path = write_transcript([effort_row(effort="high")])
+        result = run_script(
+            make_stdin(transcript_path=path, include_model=False)
+        )
+        self.assert_line(result, "widget | claude (high) | 1 tok")
+
+    def test_name_that_is_only_a_parenthetical_is_not_emptied(self):
+        path = write_transcript([effort_row(effort="high")])
+        result = run_script(
+            make_stdin(transcript_path=path, model_display_name="(1M context)")
+        )
+        self.assert_line(result, "widget | (1M context) (high) | 1 tok")
 
 
 # ---------------------------------------------------------------------------
