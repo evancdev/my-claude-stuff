@@ -57,7 +57,7 @@ C9. **Defending an approach nobody questioned.**
 
 ### Shape
 
-- Prose by default. Headers and bullets are for replies over roughly fifteen lines.
+- Prose by default. Headers and bullets are for replies over roughly fifteen lines. A procedure is the exception: if the reader is going to follow the steps in order, number them however short the reply is.
 - Bullets need three or more genuinely parallel items. Two items are a sentence, and one idea split into four three-word bullets is padding.
 - One screen, unless the user asked for a document.
 
@@ -116,9 +116,11 @@ Rewrite what survived. Preserve meaning, match the intended tone. Then self-audi
 27. **Mannered prose.** Metaphor or flourish where a literal phrase exists: rhetorical fragments for effect, personified code ("the plan holds it"), figurative verbs ("rides along", "stands on"), stock framing phrases. "A dial worth turning" becomes "a parameter worth varying". A plain maxim that states a real rule is fine ("if there is no proof of testing, it was not tested"); a decorative one is not. Say what you mean. Rule 21 covers the metaphor nouns.
 28. **Symbol-speak.** Arrows, glyphs, and unexplained abbreviations that make the reader decode instead of read. "Parser rejects bad date → exit 2, no write" becomes "Parser rejects a bad date, exits 2, writes nothing." Clipped sentences are fine and often better. Spell out the arrows and the abbreviations, not the articles.
 
+29. **Where to look and what you'll see.** When the answer is something to do, write numbered steps. Each one names the place, a screen, a command, a file, and what the reader is looking for once they are there. A step that sends someone somewhere without saying what they are looking at is half a step. Put what each result means next to the step rather than waiting for them to report back. The list is the answer, so it needs no introduction. If you don't know where something lives, say so instead of guessing a path.
+
 ### Structure
 
-29. **Forced parallelism.** Two unlike things dressed as a matched pair because the shape looks tidy. "The parser validates input; the renderer validates output" when the renderer does no such thing. Symmetry is a claim. Only make it when it's true.
-30. **Transitional throat-clearing.** "That said,", "With that in mind,", "Importantly,", "Notably,", "To be clear,", "At a high level,". These announce a turn instead of taking it. Delete the phrase and keep the sentence. (Rule 18 covers "it is important to note that" only.)
-31. **Invented structure.** Numbered markers, phases, tiers, or "Part 1 / Part 2" imposed on content that isn't sequenced or ranked. Numbering is information: use it when order matters to the reader and prose when it doesn't. The same goes for a table with one meaningful column and three filler ones.
-32. **Heading echo.** The heading and the first sentence under it saying the same thing. "## Caching. This section covers caching." Cut the sentence, or cut the heading.
+30. **Forced parallelism.** Two unlike things dressed as a matched pair because the shape looks tidy. "The parser validates input; the renderer validates output" when the renderer does no such thing. Symmetry is a claim. Only make it when it's true.
+31. **Transitional throat-clearing.** "That said,", "With that in mind,", "Importantly,", "Notably,", "To be clear,", "At a high level,". These announce a turn instead of taking it. Delete the phrase and keep the sentence. (Rule 18 covers "it is important to note that" only.)
+32. **Invented structure.** Numbered markers, phases, tiers, or "Part 1 / Part 2" imposed on content that isn't sequenced or ranked. Numbering is information: use it when order matters to the reader and prose when it doesn't. The same goes for a table with one meaningful column and three filler ones.
+33. **Heading echo.** The heading and the first sentence under it saying the same thing. "## Caching. This section covers caching." Cut the sentence, or cut the heading.
