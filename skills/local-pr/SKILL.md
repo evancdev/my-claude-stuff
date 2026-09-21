@@ -1,6 +1,6 @@
 ---
 name: local-pr
-description: Use when a coherent piece of work is finished, even if the larger task is not, or when the user asks to review. Fire at every natural stopping point, several times in one task if that is how the work falls. Do not fire on diff size, elapsed time, or which files were touched, and do not use a review to resolve your own uncertainty: if you cannot verify a change, ask the user with AskUserQuestion instead of making it. Opens the diff in a hunk tab beside this terminal as a local PR, leaves inline notes on it, and hands control back.
+description: Use when a coherent piece of work is finished, even if the larger task is not, or when the user asks to review, to see the diff, or where the local PR is. Fire before you report a finished change in chat or offer to commit it, never after. A summary in the terminal and an offer to push is the review you skipped. Fire at every natural stopping point, several times in one task if that is how the work falls. Do not fire on diff size, elapsed time, or which files were touched, and do not use a review to resolve your own uncertainty: if you cannot verify a change, invoke `escalate` instead of making it. Opens the diff in a hunk tab beside this terminal as a local PR, leaves inline notes on it, and hands control back.
 ---
 
 # Review
@@ -13,17 +13,21 @@ the Bash tool has no TTY, so they dump thousands of lines into context and rende
 nothing the user can see. Open the tab with the script, then drive it with
 `hunk session`.
 
+**A diff in the terminal is not a review, and neither is a summary of one.**
+
 ## 1. Open the tab
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/hunk-review.sh"                 # working tree
-"${CLAUDE_PLUGIN_ROOT}/scripts/hunk-review.sh" --staged        # staged only
-"${CLAUDE_PLUGIN_ROOT}/scripts/hunk-review.sh" main...HEAD     # a ref range
+"${CLAUDE_PLUGIN_ROOT}/scripts/hunk-review.cmux.sh"                 # working tree
+"${CLAUDE_PLUGIN_ROOT}/scripts/hunk-review.cmux.sh" --staged        # staged only
+"${CLAUDE_PLUGIN_ROOT}/scripts/hunk-review.cmux.sh" main...HEAD     # a ref range
+"${CLAUDE_PLUGIN_ROOT}/scripts/hunk-review.cmux.sh" -- src/ tests/  # only these paths
 ```
 
 Pick the scope that matches what you want read, not everything in the worktree.
-If the branch holds unrelated work, pass a ref range or a pathspec so the review
-is one coherent thing.
+If the branch holds unrelated work, pass a ref range or paths so the review is
+one coherent thing. Paths go after `--`; without it hunk reads them as refs and
+the launch fails.
 
 The script reuses an open tab for this repo and opens one otherwise. It prints
 the session id. If it exits non-zero, repeat its message to the user and stop.
@@ -71,6 +75,33 @@ Do not narrate what each hunk does. The user can read the hunk.
 
 Batch the notes through one `comment apply` rather than many `comment add` calls.
 
+### Shape of a note
+
+The first sentence is the whole note if the user reads nothing else. It is also
+what `comment list` returns. Put the claim there and the detail under it.
+
+Break anything longer than about three lines into short paragraphs. In the JSON
+batch a paragraph break is `\n\n` inside the string. A real line break there is
+invalid JSON and fails every note in the batch, so escape it. A short list gets
+one `-` item per line the same way. `rationale` is a second field on the same
+note, for the reasoning behind a claim `summary` already made.
+
+A wall of text anchored to a line is a note the user scrolls past.
+
+### A note on a test
+
+A test is a claim about behavior, so say what the code did before and what it
+does now, in the words of someone using the thing rather than someone building
+it. Name the situation, not the assertion, the fixture, or the mock, and end
+with what the test fails on.
+
+Go technical only when the change cannot be stated as a behavior. A rename or a
+refactor is the honest case: say it changes nothing observable, and say what
+would have broken if that were wrong.
+
+The same rule covers a test you deliberately did not write, and a test that pins
+current behavior you think is wrong. Say which of the two it is.
+
 ## 3. Hand back
 
 Check that the notes are actually on screen before claiming they are:
@@ -87,8 +118,14 @@ turned them off. Say so rather than letting them read an empty pane.
 Then say in one line what is in the tab and what you want looked at hardest, and
 stop.
 
-**A review is not permission to commit.** Do not commit, push, or open a PR until
-the user says so in as many words.
+One line. The notes carry the reasoning, the tradeoffs, and the parts you want
+overruled, anchored to the lines they are about. Writing that in chat as well
+puts the same work somewhere it cannot be replied to.
+
+**A review is not permission to commit, and do not offer to.** Do not commit,
+push, or open a PR until the user says so in as many words. An offer to commit
+ends your turn the same way the review does, which is how the review gets
+skipped.
 
 ## 4. Read their review back
 
@@ -112,12 +149,17 @@ Then refresh the tab with the script again so they see the new state.
 When the review is settled, close the tab:
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/hunk-review.sh" --close
+"${CLAUDE_PLUGIN_ROOT}/scripts/hunk-review.cmux.sh" --close
 ```
 
 Settled means the change it was showing is committed, or the user said they are
 done with it. Their word ends a review; your own sense that you have addressed
 everything does not.
+
+**A milestone review is the exception: leave it open.** `handoff` requires an
+open tab as proof the milestone was reviewed at all, and closes it itself once
+the milestone is committed. Close one yourself there and the next `handoff` will
+treat the milestone as unreviewed and reopen it.
 
 Closing the tab kills the session and every comment thread on it goes too, so
 never close one to tidy up and never close one with a user comment still
