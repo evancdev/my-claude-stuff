@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
+import { type RefObject, useCallback, useEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import type { Page } from "@/lib/page";
 
 const HOME: Page = { section: "plans" };
@@ -23,6 +24,18 @@ function fromTrackpad(dx: number) {
   return Math.abs(px - Math.round(px)) < 1e-6;
 }
 
+type Entry = { page: Page; key: string };
+
+function entry(page: Page): Entry {
+  return { page, key: crypto.randomUUID() };
+}
+
+// An entry without a key was saved by an older build, or by a #fragment jump.
+function current(): Entry {
+  if (!history.state?.key) history.replaceState(entry(HOME), "");
+  return history.state;
+}
+
 function scrollsX(target: EventTarget | null, dx: number) {
   for (let el = target instanceof Element ? target : null; el; el = el.parentElement) {
     const room = dx < 0 ? el.scrollLeft : el.scrollWidth - el.clientWidth - el.scrollLeft;
@@ -34,12 +47,28 @@ function scrollsX(target: EventTarget | null, dx: number) {
 
 // macOS sends a two-finger swipe as horizontal wheel events, and Electron,
 // unlike Chrome, doesn't turn them into back and forward, so this does.
-export function usePageHistory() {
-  const [page, setPage] = useState<Page>(() => history.state ?? HOME);
+export function usePageHistory(scroller: RefObject<HTMLElement | null>) {
+  const [page, setPage] = useState<Page>(() => history.state?.page ?? HOME);
+  const [scrolls] = useState(() => new Map<string, number>());
+  const shown = useRef("");
+
+  // <main> scrolls, not the document, so the browser can't restore it.
+  const show = useCallback(
+    (next: Entry, top: number) => {
+      scrolls.set(shown.current, scroller.current?.scrollTop ?? 0);
+      shown.current = next.key;
+      flushSync(() => setPage(next.page));
+      if (scroller.current) scroller.current.scrollTop = top;
+    },
+    [scrolls, scroller],
+  );
 
   useEffect(() => {
-    if (!history.state) history.replaceState(HOME, "");
-    const pop = (e: PopStateEvent) => setPage(e.state ?? HOME);
+    shown.current = current().key;
+    const pop = () => {
+      const next = current();
+      show(next, scrolls.get(next.key) ?? 0);
+    };
 
     let sum = 0;
     let last = -Infinity;
@@ -71,7 +100,9 @@ export function usePageHistory() {
         return;
       }
       sum += e.deltaX;
-      if (Math.abs(sum) < SWIPE || speed <= SLOW) return;
+      // In screen points, so a swipe is as long at any page zoom.
+      const zoom = window.dashboard.zoom();
+      if (Math.abs(sum) * zoom < SWIPE || speed * zoom <= SLOW) return;
       fired = true;
       firedAt = e.timeStamp;
       // With natural scrolling, fingers moving right scroll left.
@@ -85,13 +116,17 @@ export function usePageHistory() {
       window.removeEventListener("popstate", pop);
       window.removeEventListener("wheel", wheel);
     };
-  }, []);
+  }, [scrolls, show]);
 
-  const navigate = useCallback((next: Page) => {
-    if (JSON.stringify(next) === JSON.stringify(history.state)) return;
-    history.pushState(next, "");
-    setPage(next);
-  }, []);
+  const navigate = useCallback(
+    (target: Page) => {
+      if (JSON.stringify(target) === JSON.stringify(current().page)) return;
+      const next = entry(target);
+      history.pushState(next, "");
+      show(next, 0);
+    },
+    [show],
+  );
 
   return [page, navigate] as const;
 }

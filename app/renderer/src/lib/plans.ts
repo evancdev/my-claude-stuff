@@ -4,6 +4,6 @@ export type { Plan, Repo } from "../../../electron/plans";
 
 declare global {
   interface Window {
-    dashboard: { plans: () => Promise<{ repos: Repo[] }> };
+    dashboard: { plans: () => Promise<{ repos: Repo[] }>; zoom: () => number };
   }
 }

@@ -24,7 +24,8 @@ function savedWidth() {
 export function App() {
   const [repos, setRepos] = useState<Repo[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [page, navigate] = usePageHistory();
+  const main = useRef<HTMLElement>(null);
+  const [page, navigate] = usePageHistory(main);
   const sidebar = useRef<PanelImperativeHandle>(null);
   // Read once. A defaultSize that changes mid-drag, as the rail switches back
   // to text, stops the drag dead.
@@ -72,7 +73,7 @@ export function App() {
         onDoubleClick={() => sidebar.current?.resize(DEFAULT)}
       />
       <ResizablePanel id="main">
-        <main className="h-full overflow-y-auto px-10 py-8">
+        <main ref={main} className="h-full overflow-y-auto px-10 py-8">
           {error ?? <Pages page={page} repos={repos} onNavigate={navigate} />}
         </main>
       </ResizablePanel>
