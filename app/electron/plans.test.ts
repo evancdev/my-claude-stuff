@@ -84,6 +84,7 @@ describe("loadPlan", () => {
       status: "active",
       archived: false,
       milestone: 2,
+      milestoneTitle: "Write the handoff command",
       total: 2,
       done: 1,
       // Reading order, so plan10 comes after plan2.
@@ -97,7 +98,9 @@ describe("loadPlan", () => {
     // goes unreported.
     const folder = join(root, "bad", "demo");
     write(join(folder, "master.md"), "---\nplan: other\nstatus: shipped\nmilestone: 9\n---\n### 1. Only one\n");
-    assert.deepEqual((await loadPlan(folder, false)).problems, [
+    const plan = await loadPlan(folder, false);
+    assert.equal(plan.milestoneTitle, "");
+    assert.deepEqual(plan.problems, [
       "status is 'shipped', not one of planning, active, reviewing, archived, abandoned",
       "milestone 9 is past the 1 in master.md",
       "master.md says plan: other, folder is named demo",

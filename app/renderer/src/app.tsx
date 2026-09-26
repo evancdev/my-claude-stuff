@@ -3,12 +3,12 @@ import type { PanelImperativeHandle } from "react-resizable-panels";
 import { Pages } from "@/components/pages";
 import { Sidebar } from "@/components/sidebar";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
-import type { Page } from "@/lib/page";
+import { usePageHistory } from "@/hooks/use-page-history";
 import type { Repo } from "@/lib/plans";
 
 const MIN = 48;
 const ICONS = 140;
-const MAX = 480;
+const MAX = 240;
 const DEFAULT = 240;
 const WIDTH_KEY = "sidebar-width";
 
@@ -24,7 +24,7 @@ function savedWidth() {
 export function App() {
   const [repos, setRepos] = useState<Repo[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [page, setPage] = useState<Page>({ section: "plans" });
+  const [page, navigate] = usePageHistory();
   const sidebar = useRef<PanelImperativeHandle>(null);
   // Read once. A defaultSize that changes mid-drag, as the rail switches back
   // to text, stops the drag dead.
@@ -62,7 +62,7 @@ export function App() {
           } catch {}
         }}
       >
-        <Sidebar page={page} onNavigate={setPage} rail={rail} />
+        <Sidebar page={page} onNavigate={navigate} rail={rail} />
       </ResizablePanel>
       <ResizableHandle
         title="Drag to resize. Double-click to reset."
@@ -73,7 +73,7 @@ export function App() {
       />
       <ResizablePanel id="main">
         <main className="h-full overflow-y-auto px-10 py-8">
-          {error ?? <Pages page={page} repos={repos} onNavigate={setPage} />}
+          {error ?? <Pages page={page} repos={repos} onNavigate={navigate} />}
         </main>
       </ResizablePanel>
     </ResizablePanelGroup>

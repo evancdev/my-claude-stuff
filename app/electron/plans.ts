@@ -7,6 +7,7 @@ export type Plan = {
   status: string;
   archived: boolean;
   milestone: number | null;
+  milestoneTitle: string;
   total: number;
   done: number;
   files: string[];
@@ -209,6 +210,7 @@ export async function loadPlan(folder: string, archived: boolean): Promise<Plan>
     status,
     archived: archived || status === "archived",
     milestone,
+    milestoneTitle: milestones.find((m) => m.number === milestone)?.title ?? "",
     total: milestones.length,
     done: milestones.filter((m) => m.state.toLowerCase() === "done").length,
     files: await planFiles(folder),

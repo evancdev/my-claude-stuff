@@ -1,3 +1,4 @@
+import { TriangleAlert } from "lucide-react";
 import type { ComponentProps, ReactNode } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useStored } from "@/hooks/use-stored";
@@ -57,17 +58,28 @@ function PlansPage({ repos, onNavigate }: Omit<PagesProps, "page">) {
         </Chip>
       </div>
       {cards.length ? (
-        <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4">
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(300px,1fr))] gap-4">
           {cards.map(({ repo, plan }) => (
             <button
               key={`${repo.slug}/${plan.name}`}
               onClick={() => onNavigate({ section: "plans", repo: repo.slug, plan: plan.name })}
-              className="rounded-lg border p-4 text-left hover:bg-foreground/5"
+              className="flex flex-col rounded-lg border p-4 text-left hover:bg-foreground/5"
             >
-              <p className="truncate">{plan.name}</p>
+              <div className="flex items-baseline gap-3">
+                <p className="min-w-0 flex-1 truncate">{plan.name}</p>
+                <Status status={statusOf(plan)} />
+              </div>
               <p className="mb-4 truncate text-xs text-muted-foreground">{repoName(repo.label)}</p>
-              <Skeleton className="mb-2 h-3 w-full" />
-              <Skeleton className="h-3 w-2/3" />
+              <Progress plan={plan} />
+              {plan.problems.length > 0 && (
+                <p
+                  title={plan.problems.join("\n")}
+                  className="mt-3 flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-500"
+                >
+                  <TriangleAlert className="size-3.5" />
+                  {plan.problems.length} {plan.problems.length === 1 ? "problem" : "problems"}
+                </p>
+              )}
             </button>
           ))}
         </div>
@@ -96,6 +108,44 @@ function Num({ n }: { n: number }) {
   return <span className="opacity-60">{n}</span>;
 }
 
+const DOTS: Record<string, string> = {
+  active: "bg-emerald-500",
+  reviewing: "bg-amber-500",
+  archived: "bg-muted-foreground",
+  abandoned: "bg-muted-foreground/40",
+};
+
+// master.md can lag behind a move into archive/.
+function statusOf(plan: Plan) {
+  return plan.archived && plan.status !== "abandoned" ? "archived" : plan.status;
+}
+
+function Status({ status }: { status: string }) {
+  return (
+    <span title={status} className="flex max-w-1/2 min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+      <span className={cn("size-2 shrink-0 rounded-full", DOTS[status] ?? "border border-muted-foreground")} />
+      <span className="truncate">{status}</span>
+    </span>
+  );
+}
+
+// The label is where the plan is now; the bar is how many milestones are done.
+function Progress({ plan }: { plan: Plan }) {
+  const done = plan.total ? (plan.done / plan.total) * 100 : 0;
+  return (
+    <>
+      <p className="text-xs text-muted-foreground tabular-nums">
+        {plan.milestone === null ? "no milestone recorded" : `${plan.milestone} of ${plan.total || "?"}`}
+      </p>
+      {/* Kept when empty, so the bars line up across a row. */}
+      <p className="mt-0.5 truncate text-xs">{plan.milestoneTitle || "\u00a0"}</p>
+      <div className="mt-2 h-1 rounded-full bg-foreground/10">
+        <div className="h-full rounded-full bg-foreground" style={{ width: `${done}%` }} />
+      </div>
+    </>
+  );
+}
+
 function PlanPage({ repo, plan, onNavigate }: { repo: Repo; plan: Plan; onNavigate: (page: Page) => void }) {
   const where =
     plan.milestone === null ? "no milestone recorded" : `milestone ${plan.milestone} of ${plan.total || "?"}`;
@@ -111,7 +161,7 @@ function PlanPage({ repo, plan, onNavigate }: { repo: Repo; plan: Plan; onNaviga
           </>
         }
         title={plan.name}
-        sub={[plan.archived ? "archived" : plan.status, where].filter(Boolean).join(" · ")}
+        sub={[statusOf(plan), where].filter(Boolean).join(" · ")}
       />
       <div className="max-w-2xl space-y-3">
         <Skeleton className="h-4 w-3/4" />
