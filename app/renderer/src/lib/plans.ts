@@ -1,23 +1,6 @@
-// Mirrors as_json() in scripts/plans.py.
+import type { Repo } from "../../../electron/plans";
 
-export type Plan = {
-  name: string;
-  status: string;
-  archived: boolean;
-  milestone: number | null;
-  total: number;
-  done: number;
-  files: string[];
-  problems: string[];
-};
-
-export type Repo = {
-  slug: string;
-  label: string;
-  note: string;
-  problems: string[];
-  plans: Plan[];
-};
+export type { Plan, Repo } from "../../../electron/plans";
 
 declare global {
   interface Window {

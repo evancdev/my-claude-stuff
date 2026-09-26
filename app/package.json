@@ -3,13 +3,18 @@
   "productName": "Grug",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "description": "Plans and whatever else goes in the sidebar, in one window.",
-  "main": "main.js",
+  "main": "dist/electron/main.js",
   "scripts": {
-    "start": "electron .",
+    "start": "tsc -p electron && electron .",
     "dev": "vite",
-    "typecheck": "tsc -p .",
-    "build": "vite build && node build.js"
+    "test": "node --test electron/*.test.ts",
+    "typecheck": "tsc -p . && tsc -p electron --noEmit",
+    "build": "rm -rf dist && vite build && tsc -p electron && node build.ts"
+  },
+  "engines": {
+    "node": ">=22.18"
   },
   "devDependencies": {
     "@electron/packager": "^18.3.6",

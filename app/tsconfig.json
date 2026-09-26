@@ -12,5 +12,5 @@
     "types": ["vite/client", "node"],
     "paths": { "@/*": ["./renderer/src/*"] }
   },
-  "include": ["renderer/src", "vite.config.mts"]
+  "include": ["renderer/src", "vite.config.ts", "build.ts"]
 }

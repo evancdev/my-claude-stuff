@@ -22,11 +22,11 @@ const csp: Plugin = {
 
 export default defineConfig({
   root: "renderer",
-  // Relative asset paths, so dist/index.html works over file://.
+  // Relative asset paths, so dist/renderer/index.html works over file://.
   base: "./",
   plugins: [react(), tailwindcss(), csp],
   resolve: { alias: { "@": path.resolve(import.meta.dirname, "renderer/src") } },
-  // Must match DEV_SERVER in main.js.
+  // Must match DEV_SERVER in electron/main.ts.
   server: { port: 5199, strictPort: true },
-  build: { outDir: "../dist", emptyOutDir: true },
+  build: { outDir: "../dist/renderer", emptyOutDir: true },
 });
