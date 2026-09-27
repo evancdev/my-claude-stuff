@@ -2,17 +2,22 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, join, sep } from "node:path";
 
+export type Milestone = { number: number; title: string; state: string };
+
 export type Plan = {
   name: string;
   status: string;
   archived: boolean;
   milestone: number | null;
   milestoneTitle: string;
+  milestones: Milestone[];
   total: number;
   done: number;
   files: string[];
   problems: string[];
 };
+
+export type PlanFile = { meta: [string, string][]; body: string };
 
 export type Repo = {
   slug: string;
@@ -65,13 +70,13 @@ async function isFile(path: string) {
   }
 }
 
-// Invalid UTF-8 reads as absent, the same as a missing file. Line endings
+// Invalid UTF-8 reads as null, the same as a missing file. Line endings
 // become \n, as Python's read_text makes them.
-async function readText(path: string) {
+export async function readText(path: string) {
   try {
     return utf8.decode(await readFile(path)).replace(/\r\n?/g, "\n");
   } catch {
-    return "";
+    return null;
   }
 }
 
@@ -80,14 +85,22 @@ export function slugify(text: string) {
   return text.replace(/[^a-zA-Z0-9]/g, "-");
 }
 
+function fence(text: string) {
+  if (!text.startsWith("---")) return null;
+  const end = text.indexOf("\n---", 3);
+  if (end === -1) return null;
+  const lines = text.slice(3, end).split(/\r\n|\r|\n/);
+  // A file can open with a --- rule rather than a header block.
+  if (!lines.every((line) => !line.trim() || /^[\w-]+\s*:/.test(line.trim()))) return null;
+  const after = text.indexOf("\n", end + 4);
+  return { lines, bodyStart: after === -1 ? text.length : after + 1 };
+}
+
 // Flat `key: value` pairs from a leading `---` block, keys lowercased. Must
 // agree with frontmatter() in scripts/_lib.py, which the SessionStart hook uses.
 export function frontmatter(text: string) {
   const out = new Map<string, string>();
-  if (!text.startsWith("---")) return out;
-  const end = text.indexOf("\n---", 3);
-  if (end === -1) return out;
-  for (const line of text.slice(3, end).split(/\r\n|\r|\n/)) {
+  for (const line of fence(text)?.lines ?? []) {
     const colon = line.indexOf(":");
     const key = line.slice(0, colon).trim();
     if (colon !== -1 && key) out.set(key.toLowerCase(), line.slice(colon + 1).trim());
@@ -95,7 +108,7 @@ export function frontmatter(text: string) {
   return out;
 }
 
-export function parseMilestones(master: string) {
+export function parseMilestones(master: string): Milestone[] {
   return master.split(/\r\n|\r|\n/).flatMap((line) => {
     const head = MILESTONE_HEAD.exec(line);
     if (!head) return [];
@@ -143,40 +156,51 @@ function tilde(path: string) {
 
 // The walk is the slow part and repos don't move, so each slug is walked once
 // per launch.
-const labels = new Map<string, Promise<{ label: string; note: string }>>();
+const walked = new Map<string, Promise<string[]>>();
 
-function repoLabel(slug: string) {
-  let label = labels.get(slug);
-  if (!label) {
-    label = decodeSlug(slug).then((paths) => {
-      if (!paths.length) return { label: slug, note: "no directory on this machine slugs to this" };
-      const note = paths.length > 1 ? `ambiguous slug: ${paths.length - 1} other path(s) also match` : "";
-      return { label: tilde(paths[0]), note };
-    });
-    labels.set(slug, label);
-  }
-  return label;
+function repoPaths(slug: string) {
+  let paths = walked.get(slug);
+  if (!paths) walked.set(slug, (paths = decodeSlug(slug)));
+  return paths;
 }
 
-// master.md, the numbered milestone files in order, then the logs.
+export async function repoPath(slug: string) {
+  return (await repoPaths(slug))[0] ?? null;
+}
+
+async function repoLabel(slug: string) {
+  const paths = await repoPaths(slug);
+  if (!paths.length) return { label: slug, note: "no directory on this machine slugs to this" };
+  const note = paths.length > 1 ? `ambiguous slug: ${paths.length - 1} other path(s) also match` : "";
+  return { label: tilde(paths[0]), note };
+}
+
+const LOGS = ["findings.md", "changelog.md"];
+
+// master.md, the milestone files by number, the logs, then any other notes an
+// agent left in the folder.
+function rank(name: string) {
+  if (name === "master.md") return [0, 0];
+  const match = PLAN_FILE.exec(name);
+  if (match) return [1, Number(match[1])];
+  return LOGS.includes(name) ? [2, LOGS.indexOf(name)] : [3, 0];
+}
+
 async function planFiles(folder: string) {
-  const numbered: [number, string][] = [];
+  const names: string[] = [];
   for (const entry of await list(folder)) {
-    const match = PLAN_FILE.exec(entry.name);
-    if (match && (await isFile(join(folder, entry.name)))) numbered.push([Number(match[1]), entry.name]);
+    // Not a symlink, which could point readPlanFile anywhere on disk.
+    if (entry.name.endsWith(".md") && entry.isFile()) names.push(entry.name);
   }
-  numbered.sort((a, b) => a[0] - b[0]);
-  const names = (await isFile(join(folder, "master.md"))) ? ["master.md"] : [];
-  names.push(...numbered.map(([, name]) => name));
-  for (const name of ["findings.md", "changelog.md"]) {
-    if (await isFile(join(folder, name))) names.push(name);
-  }
-  return names;
+  return names.sort((a, b) => {
+    const [x, y] = [rank(a), rank(b)];
+    return x[0] - y[0] || x[1] - y[1];
+  });
 }
 
 export async function loadPlan(folder: string, archived: boolean): Promise<Plan> {
   const name = basename(folder);
-  const master = await readText(join(folder, "master.md"));
+  const master = (await readText(join(folder, "master.md"))) ?? "";
   const meta = frontmatter(master);
   const milestones = parseMilestones(master);
   const problems: string[] = [];
@@ -211,6 +235,7 @@ export async function loadPlan(folder: string, archived: boolean): Promise<Plan>
     archived: archived || status === "archived",
     milestone,
     milestoneTitle: milestones.find((m) => m.number === milestone)?.title ?? "",
+    milestones,
     total: milestones.length,
     done: milestones.filter((m) => m.state.toLowerCase() === "done").length,
     files: await planFiles(folder),
@@ -231,6 +256,34 @@ async function readRepo(slug: string, plansDir: string): Promise<Repo> {
     }
   }
   return repo;
+}
+
+function segment(name: unknown): name is string {
+  return typeof name === "string" && !["", ".", ".."].includes(name) && !name.includes(sep);
+}
+
+// readRepo's order, so a name in both places resolves to the one the page shows.
+export async function planFolder(projects: string, slug: unknown, plan: unknown) {
+  if (!segment(slug) || !segment(plan)) return null;
+  const plansDir = join(projects, slug, "plans");
+  for (const folder of [join(plansDir, plan), join(plansDir, "archive", plan)]) {
+    if (await isFile(join(folder, "master.md"))) return folder;
+  }
+  return null;
+}
+
+// The renderer names the file, so this reads only one the scan would list.
+export async function readPlanFile(
+  projects: string,
+  slug: unknown,
+  plan: unknown,
+  file: unknown,
+): Promise<PlanFile | null> {
+  const folder = await planFolder(projects, slug, plan);
+  if (!folder || typeof file !== "string" || !(await planFiles(folder)).includes(file)) return null;
+  const text = await readText(join(folder, file));
+  if (text === null) return null;
+  return { meta: [...frontmatter(text)], body: text.slice(fence(text)?.bodyStart ?? 0) };
 }
 
 export async function collect(projects: string) {

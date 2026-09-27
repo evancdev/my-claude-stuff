@@ -1,9 +1,20 @@
-import { TriangleAlert } from "lucide-react";
-import type { ComponentProps, ReactNode } from "react";
+import { ChevronDown, TriangleAlert } from "lucide-react";
+import { type ComponentProps, type ReactNode } from "react";
+import { KeyValue, KeyValues } from "@/components/key-values";
+import { Markdown } from "@/components/markdown";
+import { PlanStatusBox } from "@/components/plan-status";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
+import { usePlanFile } from "@/hooks/use-plan";
 import { useStored } from "@/hooks/use-stored";
 import { repoName, type Page } from "@/lib/page";
-import type { Plan, Repo } from "@/lib/plans";
+import type { Plan, PlanFile, Repo } from "@/lib/plans";
 import { cn } from "@/lib/utils";
 
 type PagesProps = { page: Page; repos: Repo[]; onNavigate: (page: Page) => void };
@@ -11,7 +22,7 @@ type PagesProps = { page: Page; repos: Repo[]; onNavigate: (page: Page) => void 
 export function Pages({ page, repos, onNavigate }: PagesProps) {
   const repo = repos.find((r) => r.slug === page.repo);
   const plan = repo?.plans.find((p) => p.name === page.plan);
-  if (repo && plan) return <PlanPage repo={repo} plan={plan} onNavigate={onNavigate} />;
+  if (repo && plan) return <PlanPage page={page} repo={repo} plan={plan} onNavigate={onNavigate} />;
   return <PlansPage repos={repos} onNavigate={onNavigate} />;
 }
 
@@ -146,7 +157,24 @@ function Progress({ plan }: { plan: Plan }) {
   );
 }
 
-function PlanPage({ repo, plan, onNavigate }: { repo: Repo; plan: Plan; onNavigate: (page: Page) => void }) {
+const MASTER = "master.md";
+const MILESTONE_FILE = /^plan(\d+)\.md$/;
+
+type PlanPageProps = { page: Page; repo: Repo; plan: Plan; onNavigate: (page: Page) => void };
+
+function PlanPage({ page, repo, plan, onNavigate }: PlanPageProps) {
+  const open = page.file && plan.files.includes(page.file) ? page.file : MASTER;
+  const file = usePlanFile(repo.slug, plan.name, open);
+  const milestoneFiles = plan.files.filter((f) => MILESTONE_FILE.test(f));
+  const show = (name: string) =>
+    onNavigate({
+      section: "plans",
+      repo: repo.slug,
+      plan: plan.name,
+      // A card opens master.md without naming it, so clicking master there is
+      // the same page and adds no history entry.
+      file: name === MASTER ? undefined : name,
+    });
   const where =
     plan.milestone === null ? "no milestone recorded" : `milestone ${plan.milestone} of ${plan.total || "?"}`;
   return (
@@ -163,14 +191,97 @@ function PlanPage({ repo, plan, onNavigate }: { repo: Repo; plan: Plan; onNaviga
         title={plan.name}
         sub={[statusOf(plan), where].filter(Boolean).join(" · ")}
       />
-      <div className="max-w-2xl space-y-3">
-        <Skeleton className="h-4 w-3/4" />
-        <Skeleton className="h-4 w-full" />
-        <Skeleton className="h-4 w-5/6" />
-        <Skeleton className="mt-8 h-6 w-1/3" />
-        <Skeleton className="h-4 w-full" />
-        <Skeleton className="h-4 w-2/3" />
+      <div className="mb-6 flex flex-wrap items-center gap-2">
+        {plan.files.map((name) =>
+          !milestoneFiles.includes(name) ? (
+            <Chip key={name} on={name === open} onClick={() => show(name)}>
+              {name.replace(/\.md$/, "")}
+            </Chip>
+          ) : name === milestoneFiles[0] ? (
+            <MilestoneMenu key="plans" plan={plan} files={milestoneFiles} open={open} onPick={show} />
+          ) : null,
+        )}
       </div>
+      {file === undefined ? (
+        <div className="max-w-2xl space-y-3">
+          <Skeleton className="h-4 w-3/4" />
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-5/6" />
+          <Skeleton className="mt-8 h-6 w-1/3" />
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-2/3" />
+        </div>
+      ) : file === null ? (
+        <p className="text-muted-foreground">Could not read {open}.</p>
+      ) : open === MASTER ? (
+        // The status box shows the PR.
+        <FileView
+          file={{ ...file, meta: file.meta.filter(([key]) => key !== "pr") }}
+          beside={<PlanStatusBox repo={repo.slug} plan={plan} />}
+        />
+      ) : (
+        <FileView file={file} />
+      )}
+    </>
+  );
+}
+
+type MilestoneMenuProps = { plan: Plan; files: string[]; open: string; onPick: (file: string) => void };
+
+// The milestone files share one tab, so a long plan doesn't fill the row.
+function MilestoneMenu({ plan, files, open, onPick }: MilestoneMenuProps) {
+  const on = files.includes(open);
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Chip on={on}>
+          {on ? open.replace(/\.md$/, "") : "plans"}
+          <ChevronDown className="size-3" />
+        </Chip>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent className="w-auto max-w-md">
+        <DropdownMenuRadioGroup value={open} onValueChange={onPick}>
+          {files.map((name) => {
+            const number = Number(MILESTONE_FILE.exec(name)?.[1]);
+            const milestone = plan.milestones.find((m) => m.number === number);
+            return (
+              <DropdownMenuRadioItem key={name} value={name} className="gap-3 text-xs">
+                <span className="w-4 text-right text-muted-foreground tabular-nums">{number}</span>
+                <span className="min-w-0 flex-1 truncate">{milestone?.title || name}</span>
+                {milestone?.state && <span className="text-muted-foreground">{milestone.state}</span>}
+              </DropdownMenuRadioItem>
+            );
+          })}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function FileView({ file, beside }: { file: PlanFile; beside?: ReactNode }) {
+  return (
+    <>
+      {(file.meta.length > 0 || beside) && (
+        <div className="mb-6 grid grid-cols-[repeat(auto-fit,minmax(min(22rem,100%),1fr))] gap-4">
+          {file.meta.length > 0 && (
+            <KeyValues className="w-full">
+              {file.meta.map(([key, value]) => (
+                <KeyValue key={key} name={key} title={value}>
+                  {/^https?:\/\//.test(value) ? (
+                    <a href={value} target="_blank" rel="noreferrer" className="underline">
+                      {value}
+                    </a>
+                  ) : (
+                    value
+                  )}
+                </KeyValue>
+              ))}
+            </KeyValues>
+          )}
+          {beside}
+        </div>
+      )}
+      <Markdown text={file.body} />
     </>
   );
 }

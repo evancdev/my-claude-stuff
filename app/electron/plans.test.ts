@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, sep } from "node:path";
 import { after, before, describe, test } from "node:test";
-import { collect, decodeSlug, frontmatter, loadPlan, parseMilestones, slugify } from "./plans.ts";
+import { collect, decodeSlug, frontmatter, loadPlan, parseMilestones, readPlanFile, slugify } from "./plans.ts";
 
 const MASTER = `---
 plan: demo
@@ -77,7 +77,9 @@ describe("loadPlan", () => {
   test("a well-formed plan has its progress and files, and no problems", async () => {
     const folder = join(root, "load", "demo");
     write(join(folder, "master.md"), MASTER);
-    for (const name of ["plan10.md", "plan2.md", "plan1.md", "findings.md", "notes.txt"]) write(join(folder, name), "x");
+    for (const name of ["plan10.md", "plan2.md", "plan1.md", "findings.md", "decisions.md", "notes.txt"]) {
+      write(join(folder, name), "x");
+    }
     const plan = await loadPlan(folder, false);
     assert.deepEqual(plan, {
       name: "demo",
@@ -85,10 +87,15 @@ describe("loadPlan", () => {
       archived: false,
       milestone: 2,
       milestoneTitle: "Write the handoff command",
+      milestones: [
+        { number: 1, title: "Parse the plan folder", state: "done" },
+        { number: 2, title: "Write the handoff command", state: "active" },
+      ],
       total: 2,
       done: 1,
-      // Reading order, so plan10 comes after plan2.
-      files: ["master.md", "plan1.md", "plan2.md", "plan10.md", "findings.md"],
+      // Reading order, so plan10 comes after plan2 and a note an agent added
+      // comes last.
+      files: ["master.md", "plan1.md", "plan2.md", "plan10.md", "findings.md", "decisions.md"],
       problems: [],
     });
   });
@@ -163,6 +170,64 @@ describe("collect", () => {
     );
     // Fails if plans/archive/ is itself listed as a plan or a problem.
     assert.deepEqual(found.problems, ["scratch/ has no master.md, so it is not a plan"]);
+  });
+});
+
+describe("readPlanFile", () => {
+  const projects = () => join(root, "files");
+
+  before(() => {
+    const plans = join(projects(), "-repo", "plans");
+    write(join(plans, "live", "master.md"), MASTER);
+    write(join(plans, "live", "plan1.md"), "# One\n");
+    write(join(plans, "live", "notes.txt"), "x");
+    write(join(plans, "live", "findings.md"), "---\n\n## 1. Parse\nNote: short\n\n---\n\n## 2. Next\n");
+    writeFileSync(join(plans, "live", "latin1.md"), Buffer.from([0xff, 0xfe, 0x41]));
+    symlinkSync(join(projects(), "-repo", "secret.md"), join(plans, "live", "link.md"));
+    write(join(plans, "archive", "old", "master.md"), "# Old\n");
+    write(join(plans, "archive", "live", "master.md"), "# Archived twin\n");
+    write(join(projects(), "-repo", "secret.md"), "x");
+  });
+
+  test("splits a file's header block from the text under it", async () => {
+    assert.deepEqual(await readPlanFile(projects(), "-repo", "live", "master.md"), {
+      meta: [...frontmatter(MASTER)],
+      body: MASTER.slice(MASTER.indexOf("\n---\n") + 5),
+    });
+    assert.deepEqual(await readPlanFile(projects(), "-repo", "live", "plan1.md"), { meta: [], body: "# One\n" });
+  });
+
+  test("keeps a file that opens with a --- rule whole", async () => {
+    // Fails if the text between two rules is taken for a header block and
+    // dropped from the page.
+    const findings = await readPlanFile(projects(), "-repo", "live", "findings.md");
+    assert.deepEqual(findings?.meta, []);
+    assert.match(findings?.body ?? "", /## 1\. Parse/);
+  });
+
+  test("says it couldn't read a file that isn't UTF-8, rather than showing a blank page", async () => {
+    assert.equal(await readPlanFile(projects(), "-repo", "live", "latin1.md"), null);
+  });
+
+  test("finds an archived plan, and prefers the live one when both have the name", async () => {
+    assert.equal((await readPlanFile(projects(), "-repo", "old", "master.md"))?.body, "# Old\n");
+    assert.equal((await readPlanFile(projects(), "-repo", "live", "master.md"))?.meta.length, 3);
+  });
+
+  test("reads nothing the plan's file list doesn't hold", async () => {
+    // Fails if the renderer can name its way to any other file on disk.
+    for (const [slug, plan, file] of [
+      ["-repo", "live", "notes.txt"],
+      ["-repo", "live", "../../secret.md"],
+      ["-repo", "live", "link.md"],
+      ["-repo", "..", "secret.md"],
+      ["..", "files", "master.md"],
+      ["-repo", "live/../live", "master.md"],
+      ["-repo", "gone", "master.md"],
+      ["-repo", "live", 1],
+    ]) {
+      assert.equal(await readPlanFile(projects(), slug, plan, file), null, `${slug} ${plan} ${file}`);
+    }
   });
 });
 

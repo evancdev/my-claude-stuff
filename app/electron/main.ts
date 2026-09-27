@@ -2,7 +2,8 @@ import { app, BrowserWindow, dialog, ipcMain, nativeTheme, shell } from "electro
 import { writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { collect } from "./plans.ts";
+import { collect, readPlanFile } from "./plans.ts";
+import { planStatus } from "./status.ts";
 
 // Must match server.port in vite.config.ts.
 const DEV_SERVER = "http://localhost:5199/";
@@ -90,6 +91,8 @@ function openWindow(dev: boolean) {
 app.whenReady().then(async () => {
   const projects = join(homedir(), ".claude", "projects");
   ipcMain.handle("plans", async () => ({ repos: await collect(projects) }));
+  ipcMain.handle("plan-file", (_, repo, plan, file) => readPlanFile(projects, repo, plan, file));
+  ipcMain.handle("plan-status", (_, repo, plan) => planStatus(projects, repo, plan));
   openWindow(await devServerUp());
   nativeTheme.on("updated", () => {
     for (const win of BrowserWindow.getAllWindows()) win.setBackgroundColor(background());
