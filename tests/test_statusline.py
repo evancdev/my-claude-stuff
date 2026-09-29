@@ -9,9 +9,10 @@ Tests invoke the script as a subprocess and assert on its contract:
 """
 
 from __future__ import annotations
+
 import json
-import re
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -35,6 +36,7 @@ def run_script(stdin_text: str, timeout: float = 10.0) -> subprocess.CompletedPr
         [sys.executable, str(SCRIPT)],
         input=stdin_text,
         capture_output=True,
+        check=False,
         text=True,
         timeout=timeout,
     )
@@ -928,6 +930,7 @@ class IntegrationTests(StatuslineTestBase):
             [sys.executable, str(SCRIPT)],
             input=stdin,
             capture_output=True,
+            check=False,
             text=True,
             cwd="/tmp",
             timeout=10.0,
@@ -1118,9 +1121,7 @@ class TokenColorTests(StatuslineTestBase):
 
     def test_nothing_before_the_count_is_colored(self):
         path = self.make_transcript([usage_row(input_tokens=1000)])
-        result = run_script(
-            make_stdin(transcript_path=path, model_display_name="opus")
-        )
+        result = run_script(make_stdin(transcript_path=path, model_display_name="opus"))
         head = result.stdout.split("\x1b")[0]
         self.assertEqual(head, "widget | opus | ")
 
@@ -1235,9 +1236,7 @@ class EffortTests(StatuslineTestBase):
 
     def test_effort_with_a_missing_model_name_uses_the_fallback(self):
         path = write_transcript([effort_row(effort="high")])
-        result = run_script(
-            make_stdin(transcript_path=path, include_model=False)
-        )
+        result = run_script(make_stdin(transcript_path=path, include_model=False))
         self.assert_line(result, "widget | claude (high) | 1 tok")
 
     def test_name_that_is_only_a_parenthetical_is_not_emptied(self):

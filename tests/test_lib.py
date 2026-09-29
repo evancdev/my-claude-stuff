@@ -51,11 +51,13 @@ class AtomicWriteCleanupTests(unittest.TestCase):
         os.chmod(self.target, 0o644)
         original = self.target.read_bytes()
 
-        with unittest.mock.patch(
-            "os.replace", side_effect=OSError("simulated replace failure")
+        with (
+            unittest.mock.patch(
+                "os.replace", side_effect=OSError("simulated replace failure")
+            ),
+            self.assertRaises(OSError),
         ):
-            with self.assertRaises(OSError):
-                self.lib.atomic_write(self.target, '{"new": "data"}\n')
+            self.lib.atomic_write(self.target, '{"new": "data"}\n')
 
         self.assertEqual(
             self._leftover_tmp_files(),
@@ -68,11 +70,13 @@ class AtomicWriteCleanupTests(unittest.TestCase):
         """Bootstrap path: replace fails, no target file ever existed."""
         self.assertFalse(self.target.exists())
 
-        with unittest.mock.patch(
-            "os.replace", side_effect=OSError("simulated replace failure")
+        with (
+            unittest.mock.patch(
+                "os.replace", side_effect=OSError("simulated replace failure")
+            ),
+            self.assertRaises(OSError),
         ):
-            with self.assertRaises(OSError):
-                self.lib.atomic_write(self.target, "{}\n")
+            self.lib.atomic_write(self.target, "{}\n")
 
         self.assertEqual(
             self._leftover_tmp_files(),
@@ -102,9 +106,11 @@ class AtomicWriteCleanupTests(unittest.TestCase):
             def write(self, _data):
                 raise OSError("simulated write failure")
 
-        with unittest.mock.patch("os.fdopen", side_effect=_FailingWriter):
-            with self.assertRaises(OSError):
-                self.lib.atomic_write(self.target, "doesn't matter")
+        with (
+            unittest.mock.patch("os.fdopen", side_effect=_FailingWriter),
+            self.assertRaises(OSError),
+        ):
+            self.lib.atomic_write(self.target, "doesn't matter")
 
         self.assertEqual(
             self._leftover_tmp_files(),

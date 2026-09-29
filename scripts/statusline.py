@@ -69,51 +69,49 @@ def _scan_transcript(path: str) -> tuple[dict, str]:
     usage: dict = {}
     effort = ""
 
-    try:
-        f = open(path, "rb")
-    except OSError:
-        return usage, effort
-
     chunk_size = 16384
 
-    with f:
-        f.seek(0, 2)
-        pos = f.tell()
-        carry = b""  # partial line at the start of the previously-read region
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, 2)
+            pos = f.tell()
+            carry = b""  # partial line at the start of the previously-read region
 
-        while pos > 0:
-            read = min(chunk_size, pos)
-            pos -= read
-            f.seek(pos)
-            block = f.read(read) + carry
+            while pos > 0:
+                read = min(chunk_size, pos)
+                pos -= read
+                f.seek(pos)
+                block = f.read(read) + carry
 
-            if pos > 0:
-                # The first line might still be partial — its start is in a
-                # chunk we haven't read yet. Save it for the next iteration.
-                idx = block.find(b"\n")
-                if idx == -1:
-                    # No newline in the whole block — entire block is one
-                    # partial line.
-                    carry = block
-                    continue
-                carry = block[:idx]
-                block = block[idx + 1 :]
-            else:
-                carry = b""
+                if pos > 0:
+                    # The first line might still be partial — its start is in a
+                    # chunk we haven't read yet. Save it for the next iteration.
+                    idx = block.find(b"\n")
+                    if idx == -1:
+                        # No newline in the whole block — entire block is one
+                        # partial line.
+                        carry = block
+                        continue
+                    carry = block[:idx]
+                    block = block[idx + 1 :]
+                else:
+                    carry = b""
 
-            for line in reversed(block.split(b"\n")):
-                if not line.strip():
-                    continue
-                try:
-                    row = json.loads(line.decode("utf-8", errors="replace"))
-                except Exception:
-                    continue
-                if not usage:
-                    usage = _row_usage(row)
-                if not effort:
-                    effort = _row_effort(row)
-                if usage and effort:
-                    return usage, effort
+                for line in reversed(block.split(b"\n")):
+                    if not line.strip():
+                        continue
+                    try:
+                        row = json.loads(line.decode("utf-8", errors="replace"))
+                    except (ValueError, RecursionError):
+                        continue
+                    if not usage:
+                        usage = _row_usage(row)
+                    if not effort:
+                        effort = _row_effort(row)
+                    if usage and effort:
+                        return usage, effort
+    except OSError:
+        pass
 
     return usage, effort
 
@@ -121,7 +119,7 @@ def _scan_transcript(path: str) -> tuple[dict, str]:
 def main() -> None:
     try:
         hook = _as_dict(json.loads(sys.stdin.read()))
-    except Exception:
+    except (OSError, ValueError, RecursionError):
         print("claude json parsing error o7")
         return
 

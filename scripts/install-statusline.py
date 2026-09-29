@@ -100,8 +100,6 @@ def main() -> int:
 if __name__ == "__main__":
     try:
         sys.exit(main())
-    except Exception as e:
-        # Structured stderr line instead of a Python traceback. `Exception`
-        # (not `BaseException`) so Ctrl-C still propagates normally.
+    except OSError as e:
         print(f"error: {type(e).__name__}: {e}", file=sys.stderr)
         sys.exit(1)

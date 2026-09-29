@@ -29,6 +29,7 @@ def _run(*args, env_extra=None):
     return subprocess.run(
         [str(INSTALL), *args],
         capture_output=True,
+        check=False,
         text=True,
         env=env,
         timeout=10.0,
@@ -187,6 +188,7 @@ class InstallCliTests(unittest.TestCase):
         r = subprocess.run(
             [str(isolated / "install-cli.py")],
             capture_output=True,
+            check=False,
             text=True,
             env={**os.environ, "HOME": self.tmpdir, "SHELL": "/bin/zsh"},
             timeout=10.0,
