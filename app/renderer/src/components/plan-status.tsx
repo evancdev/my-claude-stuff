@@ -1,8 +1,9 @@
-import { Fragment } from "react";
+import { Fragment, type ReactNode, useRef, useState } from "react";
 import { KeyValue, KeyValues } from "@/components/key-values";
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePlanStatus } from "@/hooks/use-plan";
 import type { BranchStatus, Plan, PrStatus } from "@/lib/plans";
+import { namesBranches, readyToArchive } from "@/lib/sections";
 import { cn } from "@/lib/utils";
 
 const relative = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
@@ -33,20 +34,73 @@ const REVIEW_COLORS: Record<string, string> = {
   "changes requested": "text-amber-600 dark:text-amber-500",
 };
 
-export function PlanStatusBox({ repo, plan }: { repo: string; plan: Plan }) {
+// branch is the plan's own, from master.md's frontmatter.
+export function PlanStatusBox({ repo, plan, branch }: { repo: string; plan: Plan; branch?: string }) {
   const status = usePlanStatus(repo, plan.name);
   if (status === undefined) return <Skeleton className="min-h-28 rounded-lg" />;
-  const { pr, branch } = status;
-  if (!pr && !branch) return null;
-  return (
-    <KeyValues className="w-full">
-      {pr && ("error" in pr ? <KeyValue name="pr">{`#${pr.number} · ${pr.error}`}</KeyValue> : <PrRows plan={plan} pr={pr} />)}
-      {branch && ("error" in branch ? <KeyValue name="branch">{branch.error}</KeyValue> : <BranchRows branch={branch} />)}
+  if (!status.length) return null;
+  const archivable = readyToArchive(status, plan.archived);
+  const named = namesBranches(status, branch);
+  const boxes = status.map(({ pr, branch }) => (
+    <KeyValues key={`${pr?.number}/${branch?.name}`} className="h-full w-full">
+      {pr &&
+        ("error" in pr ? (
+          <KeyValue name="pr">{`#${pr.number} · ${pr.error}`}</KeyValue>
+        ) : (
+          <PrRows pr={pr} archivable={archivable} />
+        ))}
+      {branch &&
+        ("error" in branch ? (
+          <KeyValue name="branch">{named ? `${branch.name} · ${branch.error}` : branch.error}</KeyValue>
+        ) : (
+          <BranchRows branch={branch} named={named} />
+        ))}
     </KeyValues>
+  ));
+  if (boxes.length === 1) return boxes[0];
+  const labels = status.map(({ pr, branch }) => (pr ? `#${pr.number}` : (branch?.name ?? "")));
+  // Keyed, so another plan's page opens on its first box.
+  return (
+    <Slides key={plan.name} labels={labels}>
+      {boxes}
+    </Slides>
   );
 }
 
-function PrRows({ plan, pr }: { plan: Plan; pr: PrStatus }) {
+// One box in view at a time. A two-finger swipe slides them, and only swiping
+// past either end goes back or forward a page.
+function Slides({ labels, children }: { labels: string[]; children: ReactNode[] }) {
+  const strip = useRef<HTMLDivElement>(null);
+  const [scrolled, setScrolled] = useState(0);
+  // A refresh can drop a box from under the one in view.
+  const shown = Math.min(scrolled, labels.length - 1);
+  const slideTo = (i: number) => strip.current?.scrollTo({ left: i * strip.current.clientWidth, behavior: "smooth" });
+  return (
+    <div className="flex min-w-0 flex-col gap-1">
+      <div
+        ref={strip}
+        onScroll={(e) => setScrolled(Math.round(e.currentTarget.scrollLeft / e.currentTarget.clientWidth))}
+        className="flex flex-1 snap-x snap-mandatory overflow-x-auto [scrollbar-width:none]"
+      >
+        {children.map((box, i) => (
+          // Inset, so a scroll that stops a fraction short can't clip the border.
+          <div key={labels[i]} className="w-full shrink-0 snap-start px-px">
+            {box}
+          </div>
+        ))}
+      </div>
+      <div className="flex justify-center">
+        {labels.map((label, i) => (
+          <button key={label} title={label} aria-label={`Show ${label}`} className="p-1" onClick={() => slideTo(i)}>
+            <span className={cn("block size-1.5 rounded-full", i === shown ? "bg-foreground" : "bg-foreground/20")} />
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PrRows({ pr, archivable }: { pr: PrStatus; archivable: boolean }) {
   const checks = [
     ["passed", pr.checks.passed, "text-emerald-600 dark:text-emerald-500"],
     ["failed", pr.checks.failed, "text-red-600 dark:text-red-500"],
@@ -65,7 +119,7 @@ function PrRows({ plan, pr }: { plan: Plan; pr: PrStatus }) {
           </a>
           {pr.state}
           {pr.merged && ` ${ago(Date.parse(pr.merged))}`}
-          {pr.state === "merged" && !plan.archived && (
+          {pr.state === "merged" && archivable && (
             <span className="text-amber-600 dark:text-amber-500">· ready to archive</span>
           )}
         </span>
@@ -89,7 +143,7 @@ function PrRows({ plan, pr }: { plan: Plan; pr: PrStatus }) {
   );
 }
 
-function BranchRows({ branch }: { branch: BranchStatus }) {
+function BranchRows({ branch, named }: { branch: BranchStatus; named: boolean }) {
   const parent = branch.parent ?? "unknown";
   const changes =
     branch.worktree === null
@@ -101,6 +155,11 @@ function BranchRows({ branch }: { branch: BranchStatus }) {
           : "no uncommitted changes";
   return (
     <>
+      {named && (
+        <KeyValue name="branch" title={branch.name}>
+          {branch.name}
+        </KeyValue>
+      )}
       {branch.commit && (
         <KeyValue name="last commit" title={branch.commit}>
           {branch.commit}

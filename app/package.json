@@ -9,7 +9,7 @@
   "scripts": {
     "start": "tsc -p electron && electron .",
     "dev": "vite",
-    "test": "node --test electron/*.test.ts",
+    "test": "node --test electron/*.test.ts renderer/src/lib/*.test.ts",
     "typecheck": "tsc -p . && tsc -p electron --noEmit",
     "build": "rm -rf dist && vite build && tsc -p electron && node build.ts"
   },
@@ -25,10 +25,12 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.1",
+    "class-variance-authority": "^0.7.1",
     "cn": "^0.4.0",
     "electron": "^44.4.5",
     "lucide-react": "^1.48.0",
     "markdown-it": "^15.0.2",
+    "mermaid": "^12.0.0",
     "radix-ui": "^1.6.7",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",

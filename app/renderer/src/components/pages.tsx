@@ -140,16 +140,25 @@ function Status({ status }: { status: string }) {
   );
 }
 
+// "8, 11 of 15". Several milestones can be open at once.
+function openOf(plan: Plan) {
+  return `${plan.open.join(", ")} of ${plan.total || "?"}`;
+}
+
 // The label is where the plan is now; the bar is how many milestones are done.
 function Progress({ plan }: { plan: Plan }) {
   const done = plan.total ? (plan.done / plan.total) * 100 : 0;
+  const titles = plan.open
+    .map((n) => plan.milestones.find((m) => m.number === n)?.title)
+    .filter(Boolean)
+    .join(" · ");
   return (
     <>
-      <p className="text-xs text-muted-foreground tabular-nums">
-        {plan.milestone === null ? "no milestone recorded" : `${plan.milestone} of ${plan.total || "?"}`}
-      </p>
+      <p className="text-xs text-muted-foreground tabular-nums">{plan.open.length ? openOf(plan) : "none open"}</p>
       {/* Kept when empty, so the bars line up across a row. */}
-      <p className="mt-0.5 truncate text-xs">{plan.milestoneTitle || "\u00a0"}</p>
+      <p title={titles} className="mt-0.5 truncate text-xs">
+        {titles || "\u00a0"}
+      </p>
       <div className="mt-2 h-1 rounded-full bg-foreground/10">
         <div className="h-full rounded-full bg-foreground" style={{ width: `${done}%` }} />
       </div>
@@ -175,8 +184,9 @@ function PlanPage({ page, repo, plan, onNavigate }: PlanPageProps) {
       // the same page and adds no history entry.
       file: name === MASTER ? undefined : name,
     });
-  const where =
-    plan.milestone === null ? "no milestone recorded" : `milestone ${plan.milestone} of ${plan.total || "?"}`;
+  const where = plan.open.length
+    ? `${plan.open.length === 1 ? "milestone" : "milestones"} ${openOf(plan)}`
+    : "no milestone open";
   return (
     <>
       <Heading
@@ -217,7 +227,9 @@ function PlanPage({ page, repo, plan, onNavigate }: PlanPageProps) {
         // The status box shows the PR.
         <FileView
           file={{ ...file, meta: file.meta.filter(([key]) => key !== "pr") }}
-          beside={<PlanStatusBox repo={repo.slug} plan={plan} />}
+          beside={
+            <PlanStatusBox repo={repo.slug} plan={plan} branch={file.meta.find(([key]) => key === "branch")?.[1]} />
+          }
         />
       ) : (
         <FileView file={file} />
@@ -244,11 +256,13 @@ function MilestoneMenu({ plan, files, open, onPick }: MilestoneMenuProps) {
           {files.map((name) => {
             const number = Number(MILESTONE_FILE.exec(name)?.[1]);
             const milestone = plan.milestones.find((m) => m.number === number);
+            // A heading says (done) once it closes; open is only in the frontmatter.
+            const state = milestone?.state || (plan.open.includes(number) ? "open" : "");
             return (
               <DropdownMenuRadioItem key={name} value={name} className="gap-3 text-xs">
                 <span className="w-4 text-right text-muted-foreground tabular-nums">{number}</span>
                 <span className="min-w-0 flex-1 truncate">{milestone?.title || name}</span>
-                {milestone?.state && <span className="text-muted-foreground">{milestone.state}</span>}
+                {state && <span className="text-muted-foreground">{state}</span>}
               </DropdownMenuRadioItem>
             );
           })}

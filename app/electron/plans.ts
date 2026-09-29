@@ -2,14 +2,14 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, join, sep } from "node:path";
 
-export type Milestone = { number: number; title: string; state: string };
+// landsOn is the branch its "- Lands on:" line names, "" for the plan's own.
+export type Milestone = { number: number; title: string; state: string; landsOn: string };
 
 export type Plan = {
   name: string;
   status: string;
   archived: boolean;
-  milestone: number | null;
-  milestoneTitle: string;
+  open: number[];
   milestones: Milestone[];
   total: number;
   done: number;
@@ -85,22 +85,24 @@ export function slugify(text: string) {
   return text.replace(/[^a-zA-Z0-9]/g, "-");
 }
 
-function fence(text: string) {
+// Loose reads any block between a leading --- and the next, the way
+// frontmatter() in scripts/_lib.py does for the SessionStart hook, so a comment
+// line in master.md's header can't make the two disagree. Another file can open
+// with a --- rule instead, so there the block counts only if it is all keys.
+function fence(text: string, loose: boolean) {
   if (!text.startsWith("---")) return null;
   const end = text.indexOf("\n---", 3);
   if (end === -1) return null;
   const lines = text.slice(3, end).split(/\r\n|\r|\n/);
-  // A file can open with a --- rule rather than a header block.
-  if (!lines.every((line) => !line.trim() || /^[\w-]+\s*:/.test(line.trim()))) return null;
+  if (!loose && !lines.every((line) => !line.trim() || /^[\w-]+\s*:/.test(line.trim()))) return null;
   const after = text.indexOf("\n", end + 4);
   return { lines, bodyStart: after === -1 ? text.length : after + 1 };
 }
 
-// Flat `key: value` pairs from a leading `---` block, keys lowercased. Must
-// agree with frontmatter() in scripts/_lib.py, which the SessionStart hook uses.
-export function frontmatter(text: string) {
+// Flat `key: value` pairs from a leading `---` block, keys lowercased.
+export function frontmatter(text: string, loose = true) {
   const out = new Map<string, string>();
-  for (const line of fence(text)?.lines ?? []) {
+  for (const line of fence(text, loose)?.lines ?? []) {
     const colon = line.indexOf(":");
     const key = line.slice(0, colon).trim();
     if (colon !== -1 && key) out.set(key.toLowerCase(), line.slice(colon + 1).trim());
@@ -108,18 +110,38 @@ export function frontmatter(text: string) {
   return out;
 }
 
+const LANDS_ON = /^-\s+Lands on:\s*(.*)$/i;
+
 export function parseMilestones(master: string): Milestone[] {
-  return master.split(/\r\n|\r|\n/).flatMap((line) => {
+  const out: Milestone[] = [];
+  let current: Milestone | null = null;
+  for (const line of master.split(/\r\n|\r|\n/)) {
     const head = MILESTONE_HEAD.exec(line);
-    if (!head) return [];
-    const title = head[2].trim();
-    const state = STATE.exec(title);
-    return [
-      state
-        ? { number: Number(head[1]), title: title.slice(0, state.index).trim(), state: state[1].trim() }
-        : { number: Number(head[1]), title, state: "" },
-    ];
-  });
+    if (head) {
+      const title = head[2].trim();
+      const state = STATE.exec(title);
+      current = state
+        ? { number: Number(head[1]), title: title.slice(0, state.index).trim(), state: state[1].trim(), landsOn: "" }
+        : { number: Number(head[1]), title, state: "", landsOn: "" };
+      out.push(current);
+    } else if (line.startsWith("#")) {
+      current = null;
+    } else if (current && !current.landsOn) {
+      current.landsOn = LANDS_ON.exec(line)?.[1].replaceAll("`", "").trim().split(/\s+/)[0] ?? "";
+    }
+  }
+  return out;
+}
+
+export function landingBranches(master: string) {
+  return [...new Set(parseMilestones(master).flatMap((m) => m.landsOn || []))];
+}
+
+export function commaList(value: string) {
+  return value
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
 }
 
 // A slug replaces every character that isn't a letter or digit with "-", so
@@ -216,12 +238,20 @@ export async function loadPlan(folder: string, archived: boolean): Promise<Plan>
     problems.push(`status is '${status}', not one of ${STATUSES.join(", ")}`);
   }
 
-  const declared = meta.get("milestone") ?? "";
-  const milestone = /^\d+$/.test(declared) ? Number(declared) : null;
-  if (milestone === null) {
-    problems.push(declared ? `milestone is '${declared}', not a number` : "master.md frontmatter has no milestone");
-  } else if (milestones.length && milestone > milestones.length) {
-    problems.push(`milestone ${milestone} is past the ${milestones.length} in master.md`);
+  // Every milestone open right now. Several run at once, and none while
+  // everything left waits on something outside the plan.
+  const declared = meta.get("milestone");
+  if (declared === undefined) problems.push("master.md frontmatter has no milestone");
+  const open: number[] = [];
+  for (const part of commaList(declared ?? "")) {
+    if (!/^\d+$/.test(part)) {
+      problems.push(`milestone lists '${part}', not a number`);
+      continue;
+    }
+    open.push(Number(part));
+    const listed = milestones.find((m) => m.number === Number(part));
+    if (milestones.length && !listed) problems.push(`milestone ${part} is not in master.md`);
+    else if (listed?.state.toLowerCase() === "done") problems.push(`milestone ${part} is marked done`);
   }
 
   // Everything addresses a plan by its folder name, so a `plan:` that says
@@ -233,8 +263,7 @@ export async function loadPlan(folder: string, archived: boolean): Promise<Plan>
     name,
     status,
     archived: archived || status === "archived",
-    milestone,
-    milestoneTitle: milestones.find((m) => m.number === milestone)?.title ?? "",
+    open,
     milestones,
     total: milestones.length,
     done: milestones.filter((m) => m.state.toLowerCase() === "done").length,
@@ -283,7 +312,8 @@ export async function readPlanFile(
   if (!folder || typeof file !== "string" || !(await planFiles(folder)).includes(file)) return null;
   const text = await readText(join(folder, file));
   if (text === null) return null;
-  return { meta: [...frontmatter(text)], body: text.slice(fence(text)?.bodyStart ?? 0) };
+  const loose = file === "master.md";
+  return { meta: [...frontmatter(text, loose)], body: text.slice(fence(text, loose)?.bodyStart ?? 0) };
 }
 
 export async function collect(projects: string) {

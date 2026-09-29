@@ -1,12 +1,13 @@
 import { execFile } from "node:child_process";
 import { join } from "node:path";
-import { frontmatter, planFolder, readText, repoPath } from "./plans.ts";
+import { commaList, frontmatter, landingBranches, planFolder, readText, repoPath } from "./plans.ts";
 
 export type Checks = { passed: number; failed: number; running: number; cancelled: number; skipped: number };
 
 export type PrStatus = {
   number: string;
   url: string;
+  head: string;
   state: "open" | "draft" | "merged" | "closed";
   review: string;
   checks: Checks;
@@ -26,7 +27,9 @@ export type BranchStatus = {
 
 type Failed = { number?: string; name?: string; error: string };
 
-export type PlanStatus = { pr: PrStatus | Failed | null; branch: BranchStatus | Failed | null };
+export type Section = { pr: PrStatus | Failed | null; branch: BranchStatus | Failed | null };
+
+export type PlanStatus = Section[];
 
 const env = {
   ...process.env,
@@ -63,13 +66,14 @@ export function tallyChecks(rollup: { conclusion?: string; state?: string }[]): 
 
 async function prStatus(repo: string, number: string): Promise<PrStatus | Failed> {
   if (!/^\d+$/.test(number)) return { number, error: "not a PR number" };
-  const fields = "state,isDraft,reviewDecision,statusCheckRollup,mergedAt,url";
+  const fields = "state,isDraft,reviewDecision,statusCheckRollup,mergedAt,url,headRefName";
   const out = await run(repo, "gh", "pr", "view", number, "--json", fields);
   try {
     const pr = JSON.parse(out ?? "");
     return {
       number,
       url: pr.url,
+      head: pr.headRefName,
       state: pr.state === "MERGED" ? "merged" : pr.state === "CLOSED" ? "closed" : pr.isDraft ? "draft" : "open",
       review: (pr.reviewDecision ?? "").toLowerCase().replaceAll("_", " "),
       checks: tallyChecks(pr.statusCheckRollup ?? []),
@@ -92,6 +96,20 @@ export function worktreeFor(porcelain: string, branch: string) {
 
 type Git = (...args: string[]) => Promise<string | null>;
 
+function gitIn(repo: string): Git {
+  return (...args) => run(repo, "git", ...args);
+}
+
+type RepoState = { base: string; worktrees: string };
+
+// What every branch in a repo shares, so a plan with several reads it once.
+function repoState(git: Git): Promise<RepoState> {
+  return Promise.all([
+    git("symbolic-ref", "--short", "refs/remotes/origin/HEAD"),
+    git("worktree", "list", "--porcelain"),
+  ]).then(([base, worktrees]) => ({ base: base || "main", worktrees: worktrees ?? "" }));
+}
+
 // The branch this one was cut from or rebased onto: of the branches that share
 // its history, the one it has the fewest commits beyond.
 async function parentBranch(git: Git, ref: string, name: string, base: string) {
@@ -113,10 +131,16 @@ async function parentBranch(git: Git, ref: string, name: string, base: string) {
   return candidates[0]?.short ?? base;
 }
 
-export async function branchStatus(repo: string, name: string): Promise<BranchStatus | Failed> {
+export const MISSING = "not on this machine";
+
+export async function branchStatus(
+  repo: string,
+  name: string,
+  shared?: Promise<RepoState>,
+): Promise<BranchStatus | Failed> {
   // git reads an argument with a leading "-" as an option.
   if (!/^(?!-)[\w./-]+$/.test(name)) return { name, error: "not a branch name" };
-  const git: Git = (...args) => run(repo, "git", ...args);
+  const git = gitIn(repo);
   let ref = null;
   for (const candidate of [`refs/heads/${name}`, `refs/remotes/origin/${name}`]) {
     if ((await git("rev-parse", "--verify", "--quiet", candidate)) !== null) {
@@ -124,16 +148,15 @@ export async function branchStatus(repo: string, name: string): Promise<BranchSt
       break;
     }
   }
-  if (!ref) return { name, error: "not on this machine" };
-  const base = (await git("symbolic-ref", "--short", "refs/remotes/origin/HEAD")) || "main";
-  const [log, counts, worktrees, parent] = await Promise.all([
+  if (!ref) return { name, error: MISSING };
+  const { base, worktrees } = await (shared ?? repoState(git));
+  const [log, counts, parent] = await Promise.all([
     git("log", "-1", "--format=%s", ref),
     git("rev-list", "--left-right", "--count", `${base}...${ref}`),
-    git("worktree", "list", "--porcelain"),
     parentBranch(git, ref, name, base),
   ]);
   const [behind, ahead] = counts?.split(/\s+/).map(Number) ?? [null, null];
-  const worktree = worktreeFor(worktrees ?? "", name);
+  const worktree = worktreeFor(worktrees, name);
   const changes = worktree ? await run(worktree, "git", "status", "--porcelain") : "";
   return {
     name,
@@ -147,20 +170,53 @@ export async function branchStatus(repo: string, name: string): Promise<BranchSt
   };
 }
 
+// One per branch the plan lands on, with the PR opened from it. `pr:` lists
+// PRs in the order they were opened, so a branch with two takes the later one,
+// and a PR gh couldn't read, which has no branch to match, takes the next branch
+// still without one. Any PR left over gets a section of its own.
+export function sections(branches: (BranchStatus | Failed)[], prs: (PrStatus | Failed)[]): Section[] {
+  const out: Section[] = branches.map((branch) => ({
+    pr: prs.findLast((pr) => "head" in pr && pr.head === branch.name) ?? null,
+    branch,
+  }));
+  for (const pr of prs) {
+    const free = !("head" in pr) && out.find((section) => !section.pr);
+    if (free) free.pr = pr;
+  }
+  for (const pr of prs) if (!out.some((section) => section.pr === pr)) out.push({ pr, branch: null });
+  return out;
+}
+
+// A second branch is cut when its first milestone opens, so until then it
+// isn't missing, just not made yet. main is the plan's own branch.
+export function notCutYet(branches: (BranchStatus | Failed)[], main: string) {
+  return branches.map((branch) =>
+    "error" in branch && branch.error === MISSING && branch.name !== main
+      ? { ...branch, error: "not created yet" }
+      : branch,
+  );
+}
+
 export async function planStatus(projects: string, slug: unknown, plan: unknown): Promise<PlanStatus> {
   const folder = await planFolder(projects, slug, plan);
-  if (!folder || typeof slug !== "string") return { pr: null, branch: null };
-  const meta = frontmatter((await readText(join(folder, "master.md"))) ?? "");
-  const number = meta.get("pr")?.replace(/^#/, "");
-  const name = meta.get("branch");
+  if (!folder || typeof slug !== "string") return [];
+  const master = (await readText(join(folder, "master.md"))) ?? "";
+  const meta = frontmatter(master);
+  const numbers = [...new Set(commaList(meta.get("pr") ?? "").map((part) => part.replace(/^#/, "")))];
+  const main = meta.get("branch") ?? "";
+  const names = [...new Set([main, ...landingBranches(master)].filter(Boolean))];
   const repo = await repoPath(slug);
   if (!repo) {
     const error = "repo not found on this machine";
-    return { pr: number ? { number, error } : null, branch: name ? { name, error } : null };
+    return sections(
+      names.map((name) => ({ name, error })),
+      numbers.map((number) => ({ number, error })),
+    );
   }
-  const [pr, branch] = await Promise.all([
-    number ? prStatus(repo, number) : null,
-    name ? branchStatus(repo, name) : null,
+  const shared = repoState(gitIn(repo));
+  const [prs, branches] = await Promise.all([
+    Promise.all(numbers.map((number) => prStatus(repo, number))),
+    Promise.all(names.map((name) => branchStatus(repo, name, shared))),
   ]);
-  return { pr, branch };
+  return sections(notCutYet(branches, main), prs);
 }

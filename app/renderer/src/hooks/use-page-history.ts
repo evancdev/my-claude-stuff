@@ -79,6 +79,8 @@ export function usePageHistory(scroller: RefObject<HTMLElement | null>) {
     let recent = [0, 0];
     const wheel = (e: WheelEvent) => {
       if (e.ctrlKey || !fromTrackpad(e.deltaX)) return;
+      // A swipe inside a dialog would otherwise move the page behind it.
+      if (document.querySelector('[role="dialog"]')) return;
       const speed = Math.abs(e.deltaX);
       const paused = e.timeStamp - last > QUIET;
       const settled = e.timeStamp - firedAt > SETTLE;
