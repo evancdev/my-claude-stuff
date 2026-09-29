@@ -100,7 +100,7 @@ def main() -> int:
 if __name__ == "__main__":
     try:
         sys.exit(main())
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         # Structured stderr line instead of a Python traceback. `Exception`
         # (not `BaseException`) so Ctrl-C still propagates normally.
         print(f"error: {type(e).__name__}: {e}", file=sys.stderr)

@@ -41,6 +41,7 @@ def cmux(*args: str) -> dict:
         out = subprocess.run(
             ("cmux", "--id-format", "both", *args),
             capture_output=True,
+            check=False,
             text=True,
             timeout=10,
         )
@@ -65,6 +66,7 @@ def agent_tty() -> str | None:
             out = subprocess.run(
                 ("ps", "-o", "ppid=,tty=", "-p", str(pid)),
                 capture_output=True,
+                check=False,
                 text=True,
                 timeout=5,
             )
@@ -147,5 +149,5 @@ def main() -> int:
 if __name__ == "__main__":
     try:
         sys.exit(main())
-    except Exception:
+    except Exception:  # noqa: BLE001
         sys.exit(1)

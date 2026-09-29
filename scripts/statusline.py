@@ -70,7 +70,7 @@ def _scan_transcript(path: str) -> tuple[dict, str]:
     effort = ""
 
     try:
-        f = open(path, "rb")
+        f = open(path, "rb")  # noqa: SIM115
     except OSError:
         return usage, effort
 
@@ -106,7 +106,7 @@ def _scan_transcript(path: str) -> tuple[dict, str]:
                     continue
                 try:
                     row = json.loads(line.decode("utf-8", errors="replace"))
-                except Exception:
+                except Exception:  # noqa: BLE001, S112
                     continue
                 if not usage:
                     usage = _row_usage(row)
@@ -121,7 +121,7 @@ def _scan_transcript(path: str) -> tuple[dict, str]:
 def main() -> None:
     try:
         hook = _as_dict(json.loads(sys.stdin.read()))
-    except Exception:
+    except Exception:  # noqa: BLE001
         print("claude json parsing error o7")
         return
 

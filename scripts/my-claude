@@ -55,7 +55,7 @@ def print_help(stream=sys.stdout) -> None:
         print(f"  {group:<11}{summary}", file=stream)
         for name, desc in cmds:
             print(f"    {name:<19}{desc}", file=stream)
-        print("", file=stream)
+        print(file=stream)
     print("  help       show this help", file=stream)
 
 
