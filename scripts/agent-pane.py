@@ -147,7 +147,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    try:
-        sys.exit(main())
-    except Exception:  # noqa: BLE001
-        sys.exit(1)
+    sys.exit(main())
