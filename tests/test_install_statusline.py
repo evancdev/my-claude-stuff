@@ -55,6 +55,7 @@ def run_installer(
         [sys.executable, str(installer)],
         env=env,
         capture_output=True,
+        check=False,
         text=True,
         timeout=timeout,
     )
@@ -1122,7 +1123,7 @@ class OnDiskUtf8EncodingTests(InstallerTestBase):
         run_installer(self.home)
         raw = self.settings_path.read_bytes()
         # Literal UTF-8 bytes present.
-        self.assertIn("café résumé".encode("utf-8"), raw)
+        self.assertIn("café résumé".encode(), raw)
         # And not escaped to ASCII (e.g. "café").
         self.assertNotIn(b"caf\\u00e9", raw)
         self.assertNotIn(b"r\\u00e9sum\\u00e9", raw)
@@ -1131,7 +1132,7 @@ class OnDiskUtf8EncodingTests(InstallerTestBase):
         self.write_settings({"café": "value"})
         run_installer(self.home)
         raw = self.settings_path.read_bytes()
-        self.assertIn("café".encode("utf-8"), raw)
+        self.assertIn("café".encode(), raw)
         self.assertNotIn(b"caf\\u00e9", raw)
 
 
