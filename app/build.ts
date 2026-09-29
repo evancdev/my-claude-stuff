@@ -48,7 +48,7 @@ try {
     overwrite: true,
     ignore: (file: string) => !kept(file),
     icon: icon(work),
-    appBundleId: "dev.evanc.grug",
+    appBundleId: "local.grug",
   });
 } finally {
   rmSync(work, { recursive: true, force: true });
