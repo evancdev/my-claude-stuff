@@ -41,13 +41,11 @@ def cmux(*args: str) -> dict:
         out = subprocess.run(
             ("cmux", "--id-format", "both", *args),
             capture_output=True,
-            check=False,
+            check=True,
             text=True,
             timeout=10,
         )
     except (OSError, subprocess.SubprocessError):
-        return {}
-    if out.returncode != 0:
         return {}
     try:
         return json.loads(out.stdout)
@@ -66,7 +64,7 @@ def agent_tty() -> str | None:
             out = subprocess.run(
                 ("ps", "-o", "ppid=,tty=", "-p", str(pid)),
                 capture_output=True,
-                check=False,
+                check=True,
                 text=True,
                 timeout=5,
             )
