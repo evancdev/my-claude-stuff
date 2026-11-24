@@ -36,9 +36,7 @@ def main() -> int:
         description="Manage secrets in ~/.claude/secrets.env.",
         usage="%(prog)s <KEY> | --clear <KEY> | --list",
     )
-    parser.add_argument(
-        "key", nargs="?", help="Env-var-style key (e.g. FIGMA_PERSONAL_ACCESS_TOKEN)"
-    )
+    parser.add_argument("key", nargs="?", help="Env-var-style key (e.g. MY_API_TOKEN)")
     parser.add_argument("--clear", action="store_true", help="Remove the given key")
     parser.add_argument(
         "--list", action="store_true", help="List stored keys (values masked)"
